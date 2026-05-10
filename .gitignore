@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Sensitive — credentials, cookies, queue, history, encryption keys
+.env
+.env.local
+data/
+*.enc
+*.log
+.logs/
+
+# Build output / packaged distribution
+dist/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Claude Code local state
+.claude/
+
+# Backup / temp
+*.bak
+*.tmp
+__tmp_*

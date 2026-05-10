@@ -1,0 +1,2159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FetPost</title>
+  <link rel="icon" type="image/svg+xml" href="/icons/fetlife.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg0: #0a0a0c; --bg1: #111115; --bg2: #18181e; --bg3: #222228; --bg4: #2c2c34;
+      --border: rgba(255,255,255,0.07); --border-hover: rgba(255,255,255,0.14);
+      --text0: #f0f0f4; --text1: #a0a0b0; --text2: #606070;
+      --accent: #dc2626; --accent-soft: rgba(220,38,38,0.15); --accent-hover: #ef4444;
+      --bs-color: #0085ff; --bs-soft: rgba(0,133,255,0.12);
+      --fl-color: #dc2626; --fl-soft: rgba(220,38,38,0.12);
+      --success: #34d399; --warn: #fbbf24; --danger: #f87171;
+      --radius: 10px; --radius-sm: 6px; --radius-lg: 16px;
+      --font-display: 'Syne', sans-serif; --font-mono: 'DM Mono', monospace;
+    }
+    html, body { height: 100%; background: var(--bg0); color: var(--text0); font-family: var(--font-display); font-size: 14px; line-height: 1.5; }
+    ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 2px; }
+    #login-screen { height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at 50% 0%, rgba(220,38,38,0.08) 0%, transparent 60%); }
+    .login-box { width: 320px; background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px 32px; text-align: center; }
+    .login-logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 8px; }
+    .login-logo span { color: var(--accent); }
+    .login-sub { color: var(--text2); font-size: 12px; margin-bottom: 28px; font-family: var(--font-mono); }
+    .login-box input { width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; color: var(--text0); font-family: var(--font-mono); font-size: 13px; outline: none; margin-bottom: 12px; transition: border-color 0.15s; }
+    .login-box input:focus { border-color: var(--accent); }
+    .login-box button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 10px; font-family: var(--font-display); font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+    .login-box button:hover { background: var(--accent-hover); }
+    .login-error { color: var(--danger); font-size: 12px; margin-top: 10px; font-family: var(--font-mono); }
+    #app { display: none; height: 100vh; }
+    #app.visible { display: flex; }
+    .sidebar { width: 220px; flex-shrink: 0; background: var(--bg1); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-header { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); }
+    .sidebar-logo { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+    .sidebar-logo span { color: var(--accent); }
+    .sidebar-tagline { font-size: 10px; color: var(--text2); font-family: var(--font-mono); margin-top: 2px; }
+    .nav { flex: 1; padding: 12px 8px; overflow-y: auto; }
+    .nav-label { font-size: 10px; color: var(--text2); font-family: var(--font-mono); letter-spacing: 0.8px; text-transform: uppercase; padding: 8px 10px 4px; }
+    .nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text1); font-size: 13px; font-weight: 500; transition: all 0.1s; margin-bottom: 1px; border: 1px solid transparent; }
+    .nav-item:hover { background: var(--bg2); color: var(--text0); }
+    .nav-item.active { background: var(--accent-soft); color: var(--accent); border-color: rgba(220,38,38,0.2); }
+    .nav-icon { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.7; }
+    .nav-item.active .nav-icon { opacity: 1; }
+    .platform-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot-bs { background: var(--bs-color); } .dot-fl { background: var(--fl-color); }
+    .sidebar-footer { padding: 16px; border-top: 1px solid var(--border); }
+    .status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+    .status-dot.offline { background: var(--danger); }
+    .status-label { font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar { height: 56px; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--bg1); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .topbar-title { font-size: 15px; font-weight: 600; }
+    .btn { padding: 7px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg2); color: var(--text0); font-family: var(--font-display); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.1s; }
+    .btn:hover { border-color: var(--border-hover); background: var(--bg3); }
+    .btn-accent { background: var(--accent); border-color: transparent; color: #fff; }
+    .btn-accent:hover { background: var(--accent-hover); }
+    .btn-danger { color: var(--danger); border-color: rgba(248,113,113,0.2); background: transparent; }
+    .btn-danger:hover { background: rgba(248,113,113,0.08); }
+    .btn-success { color: var(--success); border-color: rgba(52,211,153,0.2); background: transparent; }
+    .btn-success:hover { background: rgba(52,211,153,0.08); }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .content { flex: 1; overflow-y: auto; padding: 24px; }
+    .view { display: none; } .view.active { display: block; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+    .stat-label { font-size: 11px; color: var(--text2); font-family: var(--font-mono); margin-bottom: 6px; }
+    .stat-num { font-size: 26px; font-weight: 700; letter-spacing: -1px; }
+    .stat-sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+    .post-card { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; }
+    .post-card:hover { border-color: var(--border-hover); }
+    .post-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .platform-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; font-family: var(--font-mono); }
+    .platform-icon { width: 1em; height: 1em; vertical-align: -2px; object-fit: contain; flex-shrink: 0; }
+    .platform-icon-lg { width: 16px; height: 16px; }
+    .badge-bs { background: var(--bs-soft); color: var(--bs-color); }
+    .badge-fl { background: var(--fl-soft); color: var(--fl-color); }
+    .badge-of { background: rgba(0,175,240,0.12); color: #00aff0; }
+    .badge-fa { background: rgba(29,160,242,0.12); color: #1da0f2; }
+    .badge-mv { background: rgba(233,30,140,0.12); color: #e91e8c; }
+    .badge-nf { background: rgba(255,107,53,0.12); color: #ff6b35; }
+    .status-badge { font-size: 10px; font-family: var(--font-mono); padding: 2px 7px; border-radius: 99px; margin-left: auto; }
+    .status-scheduled { background: rgba(52,211,153,0.12); color: var(--success); }
+    .status-sent { background: rgba(96,96,112,0.2); color: var(--text2); }
+    .status-failed { background: rgba(248,113,113,0.12); color: var(--danger); }
+    .post-time { font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+    .post-body { font-size: 13px; color: var(--text1); line-height: 1.55; margin-bottom: 10px; }
+    .post-actions { display: flex; gap: 6px; margin-top: 10px; }
+    .post-btn { font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; cursor: pointer; color: var(--text1); font-family: var(--font-display); transition: all 0.1s; }
+    .post-btn:hover { background: var(--bg2); }
+    .post-btn.danger { color: var(--danger); }
+    .post-btn.danger:hover { background: rgba(248,113,113,0.08); border-color: rgba(248,113,113,0.2); }
+    .compose-grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+    @media (max-width: 768px) { .compose-grid { grid-template-columns: 1fr; } .sidebar { display: none; } }
+    .compose-card { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 12px; }
+    .compose-label { font-size: 11px; color: var(--text2); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
+    .post-type-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--bg2); border-radius: var(--radius-sm); padding: 3px; }
+    .post-type-tab { flex: 1; padding: 7px; border-radius: 4px; border: none; background: transparent; color: var(--text1); font-family: var(--font-display); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; text-align: center; }
+    .post-type-tab.active { background: var(--bg1); color: var(--text0); border: 1px solid var(--border); }
+    .platform-toggles { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .toggle-pill { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--border); cursor: pointer; font-size: 12px; font-weight: 500; background: transparent; color: var(--text1); transition: all 0.15s; font-family: var(--font-display); }
+    .toggle-pill:hover { border-color: var(--border-hover); }
+    .toggle-pill.on { border-color: rgba(220,38,38,0.3); }
+    .account-checkboxes { margin-bottom: 16px; display: flex; flex-direction: column; width: 100%; }
+    .account-check { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 4px; border: 1px solid transparent; transition: all 0.1s; width: 100%; user-select: none; }
+    .account-check:hover { background: var(--bg2); }
+    .account-check.selected { background: var(--bg2); border-color: var(--border); }
+    .account-check input { accent-color: var(--accent); cursor: pointer; pointer-events: none; }
+    .account-check-label { font-size: 12px; color: var(--text1); }
+    .account-check-handle { font-size: 11px; color: var(--text2); font-family: var(--font-mono); margin-left: auto; }
+    textarea.compose-text { width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; color: var(--text0); font-family: var(--font-mono); font-size: 13px; resize: vertical; min-height: 100px; outline: none; line-height: 1.6; transition: border-color 0.15s; }
+    textarea.compose-text:focus { border-color: var(--accent); }
+    .char-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+    .char-count { font-size: 11px; font-family: var(--font-mono); color: var(--text2); }
+    .char-count.over { color: var(--danger); }
+    .image-drop-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 24px; text-align: center; cursor: pointer; transition: all 0.15s; margin-bottom: 12px; display: flex; flex-direction: column; align-items: center; }
+    .image-drop-zone:hover, .image-drop-zone.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+    .image-drop-zone-icon { font-size: 28px; margin-bottom: 8px; opacity: 0.5; }
+    .image-drop-zone-text { font-size: 13px; color: var(--text1); margin-bottom: 4px; }
+    .image-drop-zone-hint { font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+    .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .image-thumb { position: relative; aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); }
+    .image-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .image-thumb .img-remove { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.7); color: #fff; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+    .image-thumb .img-num { position: absolute; bottom: 4px; left: 4px; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; font-family: var(--font-mono); padding: 1px 5px; border-radius: 3px; }
+    .schedule-row { display: flex; gap: 10px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+    input[type="datetime-local"] { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text0); font-family: var(--font-mono); font-size: 12px; outline: none; transition: border-color 0.15s; flex: 1; min-width: 180px; color-scheme: dark; }
+    input[type="datetime-local"]:focus { border-color: var(--accent); }
+    .accounts-section { margin-bottom: 24px; }
+    .accounts-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    .accounts-section-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .account-row { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
+    .account-row:hover { border-color: var(--border-hover); }
+    .account-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+    .account-info { flex: 1; min-width: 0; }
+    .account-name { font-size: 13px; font-weight: 600; }
+    .account-handle { font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+    .account-meta { font-size: 11px; color: var(--text2); margin-top: 2px; }
+    .account-row-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+    .test-result { font-size: 11px; font-family: var(--font-mono); padding: 2px 8px; border-radius: 99px; }
+    .test-ok { background: rgba(52,211,153,0.12); color: var(--success); }
+    .test-fail { background: rgba(248,113,113,0.12); color: var(--danger); }
+    .test-pending { background: rgba(251,191,36,0.12); color: var(--warn); }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: flex; align-items: center; justify-content: center; }
+    .modal-overlay.hidden { display: none; }
+    .modal { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; width: 420px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 20px; }
+    .form-group { margin-bottom: 14px; }
+    .form-label { font-size: 11px; color: var(--text2); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; display: block; }
+    .form-input { width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; color: var(--text0); font-family: var(--font-mono); font-size: 13px; outline: none; transition: border-color 0.15s; }
+    .form-input:focus { border-color: var(--accent); }
+    .form-select { width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; color: var(--text0); font-family: var(--font-display); font-size: 13px; outline: none; cursor: pointer; }
+    .form-hint { font-size: 11px; color: var(--text2); font-family: var(--font-mono); margin-top: 4px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+    .modal-error { color: var(--danger); font-size: 12px; font-family: var(--font-mono); margin-top: 10px; }
+    #toast { position: fixed; bottom: 24px; right: 24px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; font-size: 13px; font-family: var(--font-mono); z-index: 1000; transform: translateY(80px); opacity: 0; transition: all 0.2s; max-width: 320px; }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.success { border-color: rgba(52,211,153,0.3); color: var(--success); }
+    #toast.error { border-color: rgba(248,113,113,0.3); color: var(--danger); }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
+    .empty-state .empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+    .empty-state p { font-size: 13px; font-family: var(--font-mono); }
+    .loading { text-align: center; padding: 40px; color: var(--text2); font-family: var(--font-mono); font-size: 12px; }
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .tab-bar { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+    .tab { padding: 8px 0; margin-right: 24px; font-size: 13px; cursor: pointer; color: var(--text2); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.1s; font-weight: 500; }
+    .tab:hover { color: var(--text0); }
+    .tab.active { color: var(--text0); border-bottom-color: var(--accent); }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+    .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: currentColor; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .mp-base-card { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+    .mp-acct-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--border); cursor: pointer; font-size: 12px; font-weight: 500; background: transparent; color: var(--text1); transition: all 0.15s; margin-right: 6px; margin-bottom: 6px; user-select: none; }
+    .mp-acct-pill:hover { border-color: var(--border-hover); }
+    .mp-acct-pill.selected-fl { background: var(--fl-soft); border-color: rgba(220,38,38,0.3); color: var(--fl-color); }
+    .mp-per-acct { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+    .mp-per-acct-header { padding: 10px 16px; background: var(--bg2); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+    .mp-per-acct-body { display: grid; grid-template-columns: 1fr 1fr; }
+    .mp-edit-pane { padding: 14px 16px; border-right: 1px solid var(--border); }
+    .mp-diff-pane { padding: 14px 16px; }
+    .mp-pane-label { font-size: 10px; color: var(--text2); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; }
+    .mp-diff-box { font-size: 12px; font-family: var(--font-mono); line-height: 1.8; min-height: 80px; white-space: pre-wrap; word-break: break-word; }
+    .diff-same { color: var(--text1); }
+    .diff-add { background: rgba(52,211,153,0.15); color: var(--success); border-radius: 2px; padding: 0 2px; }
+    .diff-del { background: rgba(248,113,113,0.15); color: var(--danger); border-radius: 2px; padding: 0 2px; text-decoration: line-through; }
+    .mp-sync-badge { font-size: 10px; padding: 2px 7px; border-radius: 99px; font-family: var(--font-mono); }
+    .mp-sync-badge.synced { background: rgba(52,211,153,0.12); color: var(--success); }
+    .mp-sync-badge.custom { background: rgba(251,191,36,0.12); color: var(--warn); }
+    .mp-image-mini { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .mp-image-mini img { width: 48px; height: 48px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+    .mp-img-add { width: 48px; height: 48px; border: 1px dashed var(--border); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; color: var(--text2); font-size: 18px; cursor: pointer; }
+    .mp-img-add:hover { border-color: var(--accent); color: var(--accent); }
+    .image-limit-badge { font-size: 11px; color: var(--text2); font-family: var(--font-mono); margin-bottom: 8px; }
+
+    /* ── Marketing calendar ───────────────────────────────────── */
+    .cal-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .cal-toolbar .form-select { width: auto; min-width: 220px; }
+    .cal-month-label { font-size: 18px; font-weight: 600; color: var(--text0); font-family: var(--font-display); margin: 0 8px; min-width: 180px; text-align: center; }
+    .cal-nav-btn { background: var(--bg2); border: 1px solid var(--border); color: var(--text0); width: 32px; height: 32px; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; }
+    .cal-nav-btn:hover { background: var(--bg3); border-color: var(--border-hover); }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; }
+    .cal-dow { padding: 8px 6px; font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mono); text-align: center; }
+    .cal-cell { background: var(--bg2); border-radius: var(--radius-sm); min-height: 110px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .cal-cell.other-month { background: transparent; opacity: 0.4; }
+    .cal-cell.today { box-shadow: inset 0 0 0 1px var(--accent); }
+    .cal-day-num { font-size: 12px; color: var(--text1); font-weight: 600; font-family: var(--font-mono); }
+    .cal-cell.today .cal-day-num { color: var(--accent); }
+    .cal-chips { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+    .cal-chip { font-size: 10px; padding: 3px 5px 3px 6px; border-left: 2px solid; border-radius: 3px; cursor: pointer; display: flex; align-items: center; gap: 4px; line-height: 1.3; color: var(--text0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
+    .cal-chip:hover { filter: brightness(1.3); }
+    .cal-chip-time { color: var(--text2); font-size: 9px; flex-shrink: 0; }
+    .cal-chip .platform-icon { width: 10px; height: 10px; flex-shrink: 0; }
+    .cal-chip-label { overflow: hidden; text-overflow: ellipsis; }
+    .cal-more { font-size: 10px; color: var(--text2); font-family: var(--font-mono); padding: 2px 6px; cursor: pointer; }
+    .cal-more:hover { color: var(--accent); }
+
+    .cal-side { position: fixed; top: 0; right: 0; width: 380px; height: 100vh; background: var(--bg1); border-left: 1px solid var(--border); padding: 20px; transform: translateX(100%); transition: transform 0.2s; z-index: 1000; overflow-y: auto; box-shadow: -4px 0 24px rgba(0,0,0,0.3); }
+    .cal-side.open { transform: translateX(0); }
+    .cal-side-close { position: absolute; top: 12px; right: 12px; background: transparent; border: none; color: var(--text2); font-size: 20px; cursor: pointer; line-height: 1; }
+    .cal-side-close:hover { color: var(--text0); }
+    .cal-side h3 { font-size: 16px; margin-bottom: 12px; color: var(--text0); }
+    .cal-side dl { margin-bottom: 16px; font-family: var(--font-mono); font-size: 12px; }
+    .cal-side dt { color: var(--text2); margin-bottom: 2px; }
+    .cal-side dd { color: var(--text1); margin: 0 0 10px 0; word-break: break-word; }
+    .cal-side .post-body-preview { background: var(--bg2); padding: 10px; border-radius: var(--radius-sm); white-space: pre-wrap; max-height: 280px; overflow-y: auto; font-size: 12px; line-height: 1.5; color: var(--text1); }
+  </style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">Fet<span>Post</span></div>
+    <div class="login-sub">community social scheduler</div>
+    <input type="password" id="login-password" placeholder="Enter password" />
+    <button onclick="doLogin()">Sign in</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<div id="app">
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">Fet<span>Post</span></div>
+      <div class="sidebar-tagline">community scheduler</div>
+    </div>
+    <div class="nav">
+      <div class="nav-label">Main</div>
+      <div class="nav-item active" onclick="showView('dashboard')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-item" onclick="showView('compose')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="14" height="14" rx="2"/><path d="M5 8h6M8 5v6"/></svg>
+        Compose
+      </div>
+      <div class="nav-item" onclick="showView('multipost')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><path d="M4 11h8M4 13.5h5"/></svg>
+        Multi-Post
+      </div>
+      <div class="nav-item" onclick="showView('grouppost')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="8" cy="11" r="2"/><path d="M5.5 6.5L7 9.5M10.5 6.5L9 9.5"/></svg>
+        Group Cross-Post
+      </div>
+      <div class="nav-item" onclick="showView('queue')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="7" width="10" height="2" rx="1"/><rect x="1" y="12" width="12" height="2" rx="1"/></svg>
+        Queue
+      </div>
+      <div class="nav-item" onclick="showView('history')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
+        History
+      </div>
+      <div class="nav-label">Settings</div>
+      <div class="nav-item" onclick="showView('accounts')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="3"/><path d="M1 14c0-2.76 2.24-5 5-5"/><circle cx="12" cy="7" r="2"/><path d="M9.5 14c0-1.93 1.12-3 2.5-3s2.5 1.07 2.5 3"/></svg>
+        Accounts
+      </div>
+      <div class="nav-item" onclick="showView('templates')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h7l3 3v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M10 2v3h3M5 8h6M5 11h4"/></svg>
+        Templates
+      </div>
+    </div>
+    <div class="sidebar-footer" id="service-status"></div>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="topbar-title" id="topbar-title">Dashboard</span>
+      <button class="btn btn-accent" onclick="showView('compose')">+ New Post</button>
+    </div>
+    <div class="content">
+
+      <!-- Dashboard -->
+      <div class="view active" id="view-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">scheduled</div><div class="stat-num" id="stat-scheduled">—</div><div class="stat-sub">upcoming posts</div></div>
+          <div class="stat-card"><div class="stat-label">sent today</div><div class="stat-num" id="stat-sent">—</div><div class="stat-sub">across all platforms</div></div>
+          <div class="stat-card"><div class="stat-label">accounts</div><div class="stat-num" id="stat-accounts">—</div><div class="stat-sub">connected</div></div>
+          <div class="stat-card"><div class="stat-label">platforms</div><div class="stat-num" id="stat-platforms">—</div><div class="stat-sub" id="stat-platforms-sub">enabled</div></div>
+        </div>
+        <div class="cal-toolbar" style="margin-top:18px">
+          <select class="form-select" id="cal-org" onchange="calRender()"><option value="">All organizations</option></select>
+          <span style="flex:1"></span>
+          <button class="cal-nav-btn" onclick="calShiftMonth(-1)" title="Previous month">‹</button>
+          <button class="btn btn-sm" onclick="calGoToday()">Today</button>
+          <button class="cal-nav-btn" onclick="calShiftMonth(1)" title="Next month">›</button>
+          <span class="cal-month-label" id="cal-month-label"></span>
+        </div>
+        <div class="cal-grid" id="cal-grid"></div>
+      </div>
+
+      <!-- Compose -->
+      <div class="view" id="view-compose">
+        <div class="compose-grid">
+          <div>
+            <div class="compose-card">
+              <div class="compose-label">Post Type</div>
+              <div class="post-type-tabs">
+                <button class="post-type-tab active" id="tab-text" onclick="setPostType('text')">📝 Text</button>
+                <button class="post-type-tab" id="tab-image" onclick="setPostType('image')">🖼️ Image + Caption</button>
+              </div>
+              <div class="compose-label">Platforms</div>
+              <div class="platform-toggles" id="platform-toggles"></div>
+              <div class="compose-label">Accounts</div>
+              <div class="account-checkboxes" id="account-checkboxes"><div class="loading">Loading...</div></div>
+              <div id="text-fields">
+                <div class="compose-label" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+                  <span>Content</span>
+                  <span style="display:flex;gap:6px;align-items:center;font-weight:normal;flex-wrap:wrap">
+                    <button class="btn btn-sm" onclick="openInsertEventModal('compose-text')" style="font-size:10px;padding:2px 8px">+ Insert event</button>
+                    <select class="form-select" id="cp-tpl-load" onchange="cpLoadTemplate(this.value); this.value=''" style="font-size:11px;padding:2px 6px;height:auto;width:auto"><option value="">— Load template —</option></select>
+                    <button class="btn btn-sm" onclick="cpSaveAsTemplate()" style="font-size:10px;padding:2px 8px">Save as template</button>
+                  </span>
+                </div>
+                <textarea class="compose-text" id="compose-text" rows="5" maxlength="369" placeholder="Write your post..." oninput="updateCharCount()"></textarea>
+                <div class="char-bar"><span class="char-count" id="char-count">0 chars</span></div>
+              </div>
+              <div id="image-fields" style="display:none">
+                <div class="compose-label">Images</div>
+                <div class="image-limit-badge" id="image-limit-badge">0 images added</div>
+                <div class="image-drop-zone" id="image-drop-zone" onclick="document.getElementById('image-input').click()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+                  <div class="image-drop-zone-icon">📁</div>
+                  <div class="image-drop-zone-text">Click to add images or drag and drop</div>
+                  <div class="image-drop-zone-hint">Bluesky: up to 4 · Others: 1 per post</div>
+                </div>
+                <input type="file" id="image-input" accept="image/*,video/*,audio/*" multiple style="display:none" onchange="handleImageFiles(event)">
+                <div class="image-grid" id="image-grid"></div>
+                <div class="compose-label" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+                  <span>Caption</span>
+                  <span style="display:flex;gap:6px;align-items:center;font-weight:normal;flex-wrap:wrap">
+                    <button class="btn btn-sm" onclick="openInsertEventModal('image-caption')" style="font-size:10px;padding:2px 8px">+ Insert event</button>
+                    <select class="form-select" id="cp-tpl-load-img" onchange="cpLoadTemplate(this.value); this.value=''" style="font-size:11px;padding:2px 6px;height:auto;width:auto"><option value="">— Load template —</option></select>
+                    <button class="btn btn-sm" onclick="cpSaveAsTemplate()" style="font-size:10px;padding:2px 8px">Save as template</button>
+                  </span>
+                </div>
+                <textarea class="compose-text" id="image-caption" rows="3" maxlength="369" placeholder="Add a caption..." oninput="updateCharCount()"></textarea>
+                <div class="char-bar"><span class="char-count" id="char-count-img">0 chars</span></div>
+              </div>
+              <div class="schedule-row">
+                <input type="datetime-local" id="schedule-time" />
+                <button class="btn btn-accent" onclick="schedulePost()">Schedule</button>
+                <button class="btn" onclick="scheduleNow()">Post now</button>
+              </div>
+              <div id="compose-error" style="color:var(--danger);font-size:12px;font-family:var(--font-mono);margin-top:8px;"></div>
+            </div>
+          </div>
+          <div>
+            <div class="compose-card">
+              <div class="compose-label">Preview</div>
+              <div id="post-preview-images" style="display:none;margin-bottom:10px;"><div id="preview-image-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:6px;margin-bottom:8px;"></div></div>
+              <div id="post-preview" style="font-size:13px;color:var(--text1);font-family:var(--font-mono);line-height:1.6;min-height:40px;white-space:pre-wrap;word-break:break-word;"></div>
+            </div>
+            <div class="compose-card">
+              <div class="compose-label">Platform Limits</div>
+              <div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);line-height:2">
+                <div><span style="color:#dc2626"><img class="platform-icon" src="/icons/fetlife.svg" alt=""> FetLife</span> — 369 chars · 1 image</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Multi-Post -->
+      <div class="view" id="view-multipost">
+        <div class="mp-base-card">
+          <div class="compose-label">Select FetLife Accounts</div>
+          <div id="mp-acct-pills"></div>
+          <div class="compose-label" style="margin-top:16px">Post Type</div>
+          <div class="post-type-tabs" style="max-width:280px">
+            <button class="post-type-tab active" id="mp-tab-text" onclick="mpSetPostType('text')">📝 Text</button>
+            <button class="post-type-tab" id="mp-tab-image" onclick="mpSetPostType('image')">🖼️ Image</button>
+          </div>
+          <div id="mp-text-fields">
+            <div class="compose-label" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+              <span>Base Post</span>
+              <span style="display:flex;gap:6px;align-items:center;font-weight:normal">
+                <button class="btn btn-sm" onclick="openInsertEventModal('mp-base-text')" style="font-size:10px;padding:2px 8px">+ Insert event</button>
+                <select class="form-select" id="mp-tpl-load" onchange="mpLoadTemplate(this.value); this.value=''" style="font-size:11px;padding:2px 6px;height:auto;width:auto"><option value="">— Load template —</option></select>
+              </span>
+            </div>
+            <textarea class="compose-text" id="mp-base-text" rows="4" maxlength="369" placeholder="Write your base post..." oninput="mpOnBaseChange()"></textarea>
+            <div class="char-bar"><span class="char-count" id="mp-base-chars">0 chars</span></div>
+          </div>
+          <div id="mp-image-fields" style="display:none">
+            <div class="compose-label">Base Images</div>
+            <div class="image-drop-zone" id="mp-image-drop" onclick="document.getElementById('mp-image-input').click()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="mpHandleDrop(event)">
+              <div class="image-drop-zone-icon">📁</div>
+              <div class="image-drop-zone-text">Click or drag to add base images</div>
+            </div>
+            <input type="file" id="mp-image-input" accept="image/*" multiple style="display:none" onchange="mpHandleBaseImages(event)">
+            <div class="image-grid" id="mp-base-image-grid"></div>
+            <div class="compose-label" style="margin-top:12px">Base Caption</div>
+            <textarea class="compose-text" id="mp-base-caption" rows="3" maxlength="369" placeholder="Caption..." oninput="mpOnBaseChange()"></textarea>
+          </div>
+        </div>
+        <div id="mp-per-acct-section"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:4px">
+          <input type="datetime-local" id="mp-schedule-time" style="flex:1;max-width:240px" />
+          <button class="btn" onclick="mpScheduleNow()">Post now</button>
+          <button class="btn btn-accent" onclick="mpSchedule()">Schedule all</button>
+        </div>
+        <div id="mp-error" style="color:var(--danger);font-size:12px;font-family:var(--font-mono);margin-top:8px;text-align:right"></div>
+      </div>
+
+      <!-- Group Cross-Post -->
+      <div class="view" id="view-grouppost">
+        <div class="compose-grid">
+          <div>
+            <div class="compose-card">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <img class="platform-icon" src="/icons/fetlife.svg" alt="">
+                <span style="font-weight:600;color:var(--text0)">FetLife — cross-post an event into your groups</span>
+              </div>
+              <div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);margin-bottom:14px;">Pick one of your accounts, choose an event you organized, then select the groups to post into. Title is built from the event metadata; body uses the event description verbatim. Posts stagger 60–120s between groups.</div>
+
+              <div class="compose-label">Account</div>
+              <select class="form-select" id="gp-account" onchange="gpAccountChanged()"><option value="">— choose a FetLife account —</option></select>
+
+              <div class="compose-label" style="margin-top:14px">Event
+                <button class="btn btn-sm" onclick="gpRefreshEvents()" id="gp-refresh-events" style="float:right;font-size:10px;padding:2px 8px">Refresh</button>
+              </div>
+              <select class="form-select" id="gp-event" onchange="gpEventChanged()" disabled><option value="">— choose an event —</option></select>
+              <div id="gp-event-meta" style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-top:6px;"></div>
+
+              <div class="compose-label" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+                <span>Title (auto-built)</span>
+                <span style="display:flex;gap:6px;align-items:center;font-weight:normal;flex-wrap:wrap">
+                  <button class="btn btn-sm" onclick="openInsertEventModal('gp-body')" style="font-size:10px;padding:2px 8px">+ Insert event</button>
+                  <select class="form-select" id="gp-tpl-load" onchange="gpLoadTemplate(this.value); this.value=''" style="font-size:11px;padding:2px 6px;height:auto;width:auto"><option value="">— Load template —</option></select>
+                  <button class="btn btn-sm" onclick="gpSaveAsTemplate()" style="font-size:10px;padding:2px 8px">Save as template</button>
+                </span>
+              </div>
+              <input class="form-input" type="text" id="gp-title" placeholder="Pick an event to populate" style="font-family:var(--font-mono);font-size:13px;">
+
+              <div class="compose-label" style="margin-top:14px">Body</div>
+              <textarea class="compose-text" id="gp-body" rows="8" placeholder="Pick an event to populate. You can edit before scheduling."></textarea>
+
+              <div class="schedule-row" style="margin-top:14px">
+                <input type="datetime-local" id="gp-schedule" />
+                <button class="btn btn-accent" onclick="gpSchedule()" id="gp-submit">Schedule</button>
+              </div>
+              <div id="gp-error" style="color:var(--danger);font-size:12px;font-family:var(--font-mono);margin-top:8px;"></div>
+              <div id="gp-result" style="color:var(--text2);font-size:12px;font-family:var(--font-mono);margin-top:8px;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="compose-card">
+              <div class="compose-label" style="display:flex;align-items:center;justify-content:space-between">
+                <span>Target Groups <span id="gp-group-count" style="color:var(--text2);font-weight:normal;font-size:11px"></span></span>
+                <button class="btn btn-sm" onclick="gpRefreshGroups()" id="gp-refresh-groups" style="font-size:10px;padding:2px 8px">Refresh</button>
+              </div>
+              <div id="gp-group-list" style="max-height:480px;overflow-y:auto;"><div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:8px 4px">Pick an account first.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar side panel (lives outside views so it overlays everything) -->
+      <div class="cal-side" id="cal-side">
+        <button class="cal-side-close" onclick="calClosePanel()">×</button>
+        <div id="cal-side-body"></div>
+      </div>
+
+      <!-- Queue -->
+      <div class="view" id="view-queue">
+        <div class="tab-bar">
+          <div class="tab active" onclick="showQueueTab('scheduled')">Scheduled</div>
+          <div class="tab" onclick="showQueueTab('sent')">Sent</div>
+          <div class="tab" onclick="showQueueTab('failed')">Failed</div>
+        </div>
+        <div id="queue-list"></div>
+      </div>
+
+      <!-- History -->
+      <div class="view" id="view-history"><div id="history-list"></div></div>
+
+      <!-- Accounts -->
+      <div class="view" id="view-accounts">
+        <div id="accounts-sections"></div>
+      </div>
+
+      <!-- Templates -->
+      <div class="view" id="view-templates">
+        <div class="compose-card" style="margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div>
+              <div style="font-weight:600;color:var(--text0)">Saved Templates</div>
+              <div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);margin-top:4px">Pre-written post text scoped to one account, optionally pinned to a specific group.</div>
+            </div>
+            <button class="btn btn-accent" onclick="tplOpenEditor(null)">+ New Template</button>
+          </div>
+        </div>
+        <div id="tpl-list"></div>
+      </div>
+
+      <!-- Insert Event Modal -->
+      <div class="modal-overlay hidden" id="insert-event-modal">
+        <div class="modal" style="max-width:560px">
+          <div class="modal-title">Insert Event URL</div>
+          <div class="form-group">
+            <label class="form-label">Account</label>
+            <select class="form-select" id="ie-account" onchange="ieAccountChanged()"></select>
+          </div>
+          <div class="form-group">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <label class="form-label" style="margin:0">Events</label>
+              <button class="btn btn-sm" onclick="ieRefreshEvents()" id="ie-refresh-btn" style="font-size:11px">Refresh</button>
+            </div>
+            <div id="ie-events-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg2)"></div>
+            <div id="ie-meta" style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-top:6px"></div>
+          </div>
+          <div class="modal-error" id="ie-error"></div>
+          <div class="modal-actions">
+            <button class="btn" onclick="closeInsertEventModal()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calendar Day Action Picker -->
+      <div class="modal-overlay hidden" id="cal-day-picker">
+        <div class="modal" style="max-width:360px">
+          <div class="modal-title" id="cal-day-picker-date">Date</div>
+          <div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);margin-bottom:14px">Schedule a new post for this date.</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button class="btn btn-accent" onclick="calComposeOnDate()" style="text-align:left;justify-content:flex-start">+ New Post (Compose)</button>
+            <button class="btn btn-accent" onclick="calGroupPostOnDate()" style="text-align:left;justify-content:flex-start">+ Group Cross-Post</button>
+          </div>
+          <div class="modal-actions">
+            <button class="btn" onclick="calClosePicker()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit Scheduled Post Modal -->
+      <div class="modal-overlay hidden" id="edit-post-modal">
+        <div class="modal" style="max-width:520px">
+          <div class="modal-title">Edit Scheduled Post</div>
+          <div class="form-group" id="edit-post-title-group" style="display:none">
+            <label class="form-label">Title</label>
+            <input class="form-input" type="text" id="edit-post-title" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" id="edit-post-body-label">Content</label>
+            <textarea class="compose-text" id="edit-post-body" rows="8"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Scheduled for</label>
+            <input class="form-input" type="datetime-local" id="edit-post-time" />
+          </div>
+          <div class="form-group" style="font-size:11px;color:var(--text2);font-family:var(--font-mono)" id="edit-post-meta"></div>
+          <div class="modal-error" id="edit-post-error"></div>
+          <div class="modal-actions">
+            <button class="btn" onclick="closeEditPostModal()">Cancel</button>
+            <button class="btn btn-accent" onclick="saveEditPost()">Save changes</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Template Editor Modal -->
+      <div class="modal-overlay hidden" id="tpl-modal">
+        <div class="modal" style="max-width:520px">
+          <div class="modal-title" id="tpl-modal-title">New Template</div>
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input class="form-input" type="text" id="tpl-name" placeholder="e.g. Weekly munch announcement" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Account</label>
+            <select class="form-select" id="tpl-account"></select>
+            <div class="form-hint">Template will only show when composing as this account.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Group (optional)</label>
+            <select class="form-select" id="tpl-group"><option value="">Any group / no group restriction</option></select>
+            <div class="form-hint">If set, only shows in Group Cross-Post when this group is selected.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Title (optional)</label>
+            <input class="form-input" type="text" id="tpl-title" placeholder="Used by Group Cross-Post" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Body</label>
+            <textarea class="compose-text" id="tpl-body" rows="8" placeholder="Write the post text…"></textarea>
+          </div>
+          <div class="modal-error" id="tpl-modal-error"></div>
+          <div class="modal-actions">
+            <button class="btn" onclick="tplCloseEditor()">Cancel</button>
+            <button class="btn btn-accent" onclick="tplSaveFromEditor()">Save</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Add Account Modal -->
+<div class="modal-overlay hidden" id="add-modal">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">Add Account</div>
+    <div class="form-group">
+      <label class="form-label">Platform</label>
+      <select class="form-select" id="modal-platform" onchange="onPlatformChange()">
+        <option value="fetlife">FetLife</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Account ID</label>
+      <input class="form-input" type="text" id="modal-account-id" placeholder="e.g. my-account-one" />
+      <div class="form-hint">Short unique identifier</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Group / Display Name</label>
+      <input class="form-input" type="text" id="modal-group-name" placeholder="e.g. My Group Name" />
+    </div>
+    <div id="fl-fields">
+      <div class="form-group">
+        <label class="form-label">Username / Email</label>
+        <input class="form-input" type="text" id="modal-username" placeholder="Username or email" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" type="password" id="modal-password" placeholder="Password" autocomplete="new-password" />
+      </div>
+    </div>
+    <div id="bs-fields" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Bluesky Handle</label>
+        <input class="form-input" type="text" id="modal-handle" placeholder="yourhandle.bsky.social" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">App Password</label>
+        <input class="form-input" type="password" id="modal-app-password" placeholder="xxxx-xxxx-xxxx-xxxx" autocomplete="new-password" />
+        <div class="form-hint">Settings → Privacy → App Passwords</div>
+      </div>
+    </div>
+    <div class="modal-error" id="modal-error"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeAddModal()">Cancel</button>
+      <button class="btn btn-accent" id="modal-save-btn" onclick="saveAccount()">Add Account</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── Platform config ───────────────────────────────────────────────────────
+  // `enabled: false` hides the platform from all dynamic UI surfaces (toggles, status rows,
+  // accounts sections). Lookup-by-key still works for legacy queue/history entries so old
+  // posts render correctly. Flip back to true once the integration is fixed.
+  const PLATFORMS = {
+    fetlife:   { color: '#dc2626', bg: 'rgba(220,38,38,0.12)',   iconUrl: '/icons/fetlife.svg',   label: 'FetLife',   badgeClass: 'badge-fl', enabled: true  },
+    bluesky:   { color: '#0085ff', bg: 'rgba(0,133,255,0.12)',   iconUrl: '/icons/bluesky.svg',   label: 'Bluesky',   badgeClass: 'badge-bs', enabled: false },
+    onlyfans:  { color: '#00aff0', bg: 'rgba(0,175,240,0.12)',   iconUrl: '/icons/onlyfans.svg',  label: 'OnlyFans',  badgeClass: 'badge-of', enabled: false },
+    fansly:    { color: '#1da0f2', bg: 'rgba(29,160,242,0.12)',  iconUrl: '/icons/fansly.svg',    label: 'Fansly',    badgeClass: 'badge-fa', enabled: false },
+    manyvids:  { color: '#e91e8c', bg: 'rgba(233,30,140,0.12)',  iconUrl: '/icons/manyvids.png',  label: 'ManyVids',  badgeClass: 'badge-mv', enabled: false },
+    niteflirt: { color: '#ff6b35', bg: 'rgba(255,107,53,0.12)',  iconUrl: '/icons/niteflirt.png', label: 'NiteFlirt', badgeClass: 'badge-nf', enabled: false },
+  };
+  function enabledPlatformEntries() { return Object.entries(PLATFORMS).filter(([,cfg]) => cfg.enabled); }
+  function enabledPlatformKeys()    { return enabledPlatformEntries().map(([k]) => k); }
+
+  function platformIcon(cfg, extraClass = '') {
+    return '<img class="platform-icon' + (extraClass ? ' ' + extraClass : '') + '" src="' + cfg.iconUrl + '" alt="">';
+  }
+
+  let token = localStorage.getItem('np_token') || '';
+  let allAccounts = [];
+  let selectedPlatforms = new Set();
+  let selectedAccounts = new Set();
+  let uploadedImages = [];
+  let currentPostType = 'text';
+  let currentQueueTab = 'scheduled';
+  let allPosts = [];
+  let testResults = {};
+  let mpSelectedAccounts = new Set();
+  let mpCustomText = {};
+  let mpCustomImages = {};
+  let mpBaseImages = [];
+  let mpPostType = 'text';
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  async function doLogin() {
+    const pw = document.getElementById('login-password').value;
+    try {
+      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+      const data = await res.json();
+      if (data.token) { token = data.token; localStorage.setItem('np_token', token); showApp(); }
+      else document.getElementById('login-error').textContent = 'Wrong password';
+    } catch { document.getElementById('login-error').textContent = 'Could not connect'; }
+  }
+  document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+  function showApp() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').classList.add('visible');
+    loadAll();
+    checkServices();
+    buildPlatformToggles();
+  }
+
+  async function api(method, path, body) {
+    const opts = { method, headers: { 'x-ui-token': token } };
+    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const res = await fetch(path, opts);
+    if (res.status === 401) { token = ''; localStorage.removeItem('np_token'); location.reload(); }
+    return res.json();
+  }
+
+  // ── Service status ────────────────────────────────────────────────────────
+  async function checkServices() {
+    const statusEl = document.getElementById('service-status');
+    const results = await api('GET', '/api/services').catch(() => ({ statuses: {} }));
+    const statuses = results.statuses || {};
+    statusEl.innerHTML = enabledPlatformEntries().map(([key, cfg]) => {
+      const online = statuses[key] === 'online';
+      return '<div class="status-row"><div class="status-dot' + (online ? '' : ' offline') + '"></div><span class="status-label">' + platformIcon(cfg) + ' ' + cfg.label + '</span></div>';
+    }).join('');
+    setTimeout(checkServices, 30000);
+  }
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+  const viewTitles = { dashboard: 'Marketing Calendar', compose: 'New Post', multipost: 'Multi-Post', grouppost: 'Group Cross-Post', queue: 'Post Queue', history: 'History', accounts: 'Accounts', templates: 'Templates' };
+  function showView(name) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('view-' + name).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => { if (n.getAttribute('onclick') && n.getAttribute('onclick').includes(name)) n.classList.add('active'); });
+    document.getElementById('topbar-title').textContent = viewTitles[name] || name;
+    if (name === 'queue') loadQueue();
+    if (name === 'history') loadHistory();
+    if (name === 'accounts') loadAccountsView();
+    if (name === 'compose') { loadAccountCheckboxes(); cpRefreshTemplateDropdowns(); }
+    if (name === 'multipost') { mpLoadAccountPills(); mpRefreshTemplateDropdown(); }
+    if (name === 'grouppost') gpLoadAccounts();
+    if (name === 'dashboard') loadDashboard();
+    if (name === 'templates') tplRenderList();
+  }
+
+  async function loadAll() { await loadAccounts(); await tplLoad(); loadDashboard(); }
+
+  async function loadAccounts() {
+    const data = await api('GET', '/api/accounts');
+    allAccounts = data.accounts || [];
+    document.getElementById('stat-accounts').textContent = allAccounts.length;
+  }
+
+  // ── Platform toggles (dynamic) ────────────────────────────────────────────
+  function buildPlatformToggles() {
+    const container = document.getElementById('platform-toggles');
+    container.innerHTML = enabledPlatformEntries().map(([key, cfg]) => {
+      return '<button class="toggle-pill" id="toggle-' + key + '" onclick="togglePlatform(\'' + key + '\')" style="--p-color:' + cfg.color + '">' + platformIcon(cfg) + ' ' + cfg.label + '</button>';
+    }).join('');
+  }
+
+  function togglePlatform(platform) {
+    if (selectedPlatforms.has(platform)) selectedPlatforms.delete(platform);
+    else selectedPlatforms.add(platform);
+    const btn = document.getElementById('toggle-' + platform);
+    const cfg = PLATFORMS[platform];
+    if (selectedPlatforms.has(platform)) {
+      btn.style.background = cfg.bg;
+      btn.style.borderColor = cfg.color + '80';
+      btn.style.color = cfg.color;
+    } else {
+      btn.style.background = '';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }
+    document.getElementById('image-fields').style.display = currentPostType === 'image' ? 'block' : 'none';
+    loadAccountCheckboxes();
+  }
+
+  // ── Dashboard (calendar home) ─────────────────────────────────────────────
+  async function loadDashboard() {
+    const data = await api('GET', '/api/queue').catch(() => ({ posts: [] }));
+    allPosts = data.posts || [];
+    const scheduled = allPosts.filter(p => p.status === 'scheduled');
+    const today = allPosts.filter(p => p.status === 'sent' && p.sentAt && new Date(p.sentAt) > new Date(Date.now() - 86400000));
+    document.getElementById('stat-scheduled').textContent = scheduled.length;
+    document.getElementById('stat-sent').textContent = today.length;
+    // Platforms stat reflects only enabled ones; subtitle shows the labels.
+    const enabled = enabledPlatformEntries();
+    document.getElementById('stat-platforms').textContent = enabled.length;
+    document.getElementById('stat-platforms-sub').textContent = enabled.map(([,c]) => c.label).join(' · ');
+    // Populate org filter from scheduled posts and render the calendar grid.
+    const orgs = [...new Set(scheduled.map(p => p.groupName || p.accountId).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const sel = document.getElementById('cal-org');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All organizations</option>' +
+      orgs.map(o => '<option value="' + escHtml(o) + '"' + (o === current ? ' selected' : '') + '>' + escHtml(o) + '</option>').join('');
+    calRender();
+  }
+
+  // ── Queue ─────────────────────────────────────────────────────────────────
+  async function loadQueue() {
+    document.getElementById('queue-list').innerHTML = '<div class="loading">Loading...</div>';
+    const data = await api('GET', '/api/queue');
+    allPosts = data.posts || [];
+    renderQueueTab();
+  }
+
+  function showQueueTab(tab) {
+    currentQueueTab = tab;
+    document.querySelectorAll('.tab-bar .tab').forEach((t, i) => { t.classList.toggle('active', ['scheduled','sent','failed'][i] === tab); });
+    renderQueueTab();
+  }
+
+  let sentShowAll = false;
+  function renderQueueTab() {
+    const tabPosts = allPosts.filter(p => p.status === currentQueueTab);
+    const container = document.getElementById('queue-list');
+    if (currentQueueTab === 'sent') {
+      const cutoff = Date.now() - 7 * 86400000;
+      const recent = tabPosts.filter(p => p.sentAt && new Date(p.sentAt).getTime() >= cutoff);
+      const older = tabPosts.filter(p => !p.sentAt || new Date(p.sentAt).getTime() < cutoff);
+      const visible = sentShowAll ? tabPosts : recent;
+      visible.sort((a, b) => new Date(b.sentAt || 0) - new Date(a.sentAt || 0));
+      let html = '';
+      if (visible.length === 0 && older.length === 0) {
+        html = '<div class="empty-state"><div class="empty-icon">◎</div><p>No sent posts.</p></div>';
+      } else {
+        if (visible.length === 0) {
+          html += '<div class="empty-state" style="padding:20px"><p style="color:var(--text2);font-size:13px">No sent posts in the last 7 days.</p></div>';
+        } else {
+          html += visible.map(renderPostCard).join('');
+        }
+        if (older.length > 0) {
+          html += '<div style="display:flex;justify-content:center;margin:16px 0">' +
+            '<button class="btn" onclick="toggleSentShowAll()">' +
+            (sentShowAll ? 'Show only last 7 days' : 'Show older sent posts (' + older.length + ')') +
+            '</button></div>';
+        }
+      }
+      container.innerHTML = html;
+      return;
+    }
+    if (tabPosts.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">◎</div><p>No ' + currentQueueTab + ' posts.</p></div>'; return; }
+    container.innerHTML = tabPosts.map(renderPostCard).join('');
+  }
+  function toggleSentShowAll() { sentShowAll = !sentShowAll; renderQueueTab(); }
+
+  function renderPostCard(post) {
+    const cfg = PLATFORMS[post.platform] || PLATFORMS.fetlife;
+    const time = post.scheduledAt ? new Date(post.scheduledAt).toLocaleString() : '';
+    const sentTime = post.sentAt ? new Date(post.sentAt).toLocaleString() : '';
+    const editBtn = post.status === 'scheduled' ? '<button class="post-btn" onclick="openEditPostModal(\'' + post.platform + '\',\'' + post.postId + '\')">Edit</button>' : '';
+    const cancelBtn = post.status === 'scheduled' ? '<button class="post-btn danger" onclick="cancelPost(\'' + post.platform + '\',\'' + post.postId + '\')">Cancel</button>' : '';
+    const bodyText = post.body || post.content || '';
+    const imageHtml = (Array.isArray(post.images) && post.images.length)
+      ? '<div class="post-images" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;align-items:center;">' + post.images.slice(0, 1).map(img => {
+          if (!img) return '';
+          if (typeof img === 'string') return '<img loading="lazy" src="' + img + '" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">';
+          if (img.data && img.mimeType) return '<img loading="lazy" src="data:' + img.mimeType + ';base64,' + img.data + '" alt="' + escHtml(img.altText || img.name || '') + '" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">';
+          return '';
+        }).join('') + (post.images.length > 1 ? '<span style="font-size:11px;color:var(--text2)">+' + (post.images.length - 1) + ' more</span>' : '') + '</div>'
+      : '';
+    return '<div class="post-card"><div class="post-header"><span class="platform-badge ' + cfg.badgeClass + '">' + platformIcon(cfg) + ' ' + cfg.label + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-left:4px">' + escHtml(post.accountId) + '</span><span class="status-badge status-' + post.status + '" style="margin-left:auto">' + post.status + '</span></div><div class="post-body">' + escHtml(bodyText) + '</div>' + imageHtml + '<div class="post-time">' + (post.status === 'sent' ? 'Sent ' + sentTime : 'Scheduled ' + time) + '</div><div class="post-actions">' + editBtn + cancelBtn + '</div></div>';
+  }
+
+  async function cancelPost(platform, postId) {
+    const data = await api('DELETE', '/api/posts/' + platform + '/' + encodeURIComponent(postId));
+    if (data.success) { showToast('Post cancelled', 'success'); loadQueue(); loadDashboard(); }
+    else showToast(data.error || 'Failed', 'error');
+  }
+
+  // ── Edit scheduled post ────────────────────────────────────────────────────
+  let editPostCtx = null;
+
+  function isoToLocalInput(iso) {
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  window.openEditPostModal = function (platform, postId) {
+    const post = (allPosts || []).find(p => p.platform === platform && p.postId === postId);
+    if (!post) { showToast('Post not found — refresh and try again', 'error'); return; }
+    if (post.status !== 'scheduled') { showToast('Only scheduled posts can be edited', 'error'); return; }
+
+    editPostCtx = { platform, postId, postType: post.postType || 'status' };
+    const isGroupEvent = post.postType === 'group_event';
+    const titleGroup = document.getElementById('edit-post-title-group');
+    const bodyLabel = document.getElementById('edit-post-body-label');
+    titleGroup.style.display = isGroupEvent ? 'block' : 'none';
+    bodyLabel.textContent = isGroupEvent ? 'Body' : 'Content';
+    document.getElementById('edit-post-title').value = post.title || '';
+    document.getElementById('edit-post-body').value = post.body || post.content || '';
+    document.getElementById('edit-post-time').value = isoToLocalInput(post.scheduledAt);
+    document.getElementById('edit-post-meta').textContent =
+      'Account: ' + (post.accountId || '—') +
+      (post.groupId ? '  ·  Target group: ' + post.groupId : '') +
+      '  ·  Type: ' + (post.postType || 'status');
+    document.getElementById('edit-post-error').textContent = '';
+    document.getElementById('edit-post-modal').classList.remove('hidden');
+  };
+
+  function closeEditPostModal() {
+    document.getElementById('edit-post-modal').classList.add('hidden');
+    editPostCtx = null;
+  }
+
+  async function saveEditPost() {
+    if (!editPostCtx) return;
+    const errEl = document.getElementById('edit-post-error');
+    errEl.textContent = '';
+    const isGroupEvent = editPostCtx.postType === 'group_event';
+    const title = document.getElementById('edit-post-title').value.trim();
+    const body = document.getElementById('edit-post-body').value;
+    const localTime = document.getElementById('edit-post-time').value;
+    if (!body.trim()) return errEl.textContent = isGroupEvent ? 'Body cannot be empty' : 'Content cannot be empty';
+    if (!localTime) return errEl.textContent = 'Pick a date and time';
+    const newIso = new Date(localTime).toISOString();
+    if (new Date(newIso) <= new Date()) return errEl.textContent = 'Schedule time must be in the future';
+
+    const payload = { scheduledAt: newIso };
+    if (isGroupEvent) {
+      if (!title) return errEl.textContent = 'Title cannot be empty';
+      payload.title = title;
+      payload.body = body;
+    } else {
+      payload.content = body;
+    }
+
+    try {
+      const r = await api('PATCH', '/api/posts/' + editPostCtx.platform + '/' + encodeURIComponent(editPostCtx.postId), payload);
+      if (!r || !r.success) { errEl.textContent = (r && r.error) || 'Save failed'; return; }
+      showToast('Post updated', 'success');
+      closeEditPostModal();
+      calClosePanel();
+      loadDashboard();
+      if (document.getElementById('view-queue').classList.contains('active')) loadQueue();
+    } catch (err) {
+      errEl.textContent = err.message || 'Save failed';
+    }
+  }
+
+  async function loadHistory() {
+    document.getElementById('history-list').innerHTML = '<div class="loading">Loading...</div>';
+    const data = await api('GET', '/api/history');
+    const history = data.history || [];
+    if (history.length === 0) { document.getElementById('history-list').innerHTML = '<div class="empty-state"><div class="empty-icon">◎</div><p>No post history yet.</p></div>'; return; }
+    document.getElementById('history-list').innerHTML = history.map(renderPostCard).join('');
+  }
+
+  // ── Accounts ──────────────────────────────────────────────────────────────
+  async function loadAccountsView() {
+    await loadAccounts();
+    const container = document.getElementById('accounts-sections');
+    container.innerHTML = enabledPlatformEntries().map(([key, cfg]) => {
+      return '<div class="accounts-section"><div class="accounts-section-header"><div class="accounts-section-title">' + platformIcon(cfg, 'platform-icon-lg') + ' ' + cfg.label + '</div><button class="btn btn-sm btn-accent" onclick="openAddModal(\'' + key + '\')">+ Add Account</button></div><div id="acct-list-' + key + '"><div class="loading">Loading...</div></div></div>';
+    }).join('');
+    enabledPlatformKeys().forEach(key => {
+      renderAccountsList('acct-list-' + key, allAccounts.filter(a => a.platform === key), key);
+    });
+  }
+
+  function renderAccountsList(containerId, accounts, platform) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const cfg = PLATFORMS[platform] || PLATFORMS.fetlife;
+    if (accounts.length === 0) { container.innerHTML = '<div style="padding:12px;color:var(--text2);font-size:12px;font-family:var(--font-mono)">No accounts added yet.</div>'; return; }
+    container.innerHTML = accounts.map(a => {
+      const initials = (a.handle || a.username || a.accountId).slice(0, 2).toUpperCase();
+      const identifier = a.handle || a.username || '';
+      const testResult = testResults[platform + ':' + a.accountId];
+      const testBadge = testResult === 'ok' ? '<span class="test-result test-ok">✓ Connected</span>' :
+                        testResult === 'fail' ? '<span class="test-result test-fail">✗ Failed</span>' :
+                        testResult === 'pending' ? '<span class="test-result test-pending"><span class="spinner"></span></span>' : '';
+      return '<div class="account-row"><div class="account-avatar" style="background:' + cfg.bg + ';color:' + cfg.color + '">' + initials + '</div><div class="account-info"><div class="account-name">' + escHtml(a.groupName || a.accountId) + '</div><div class="account-handle">' + escHtml(identifier) + '</div><div class="account-meta">ID: ' + escHtml(a.accountId) + (a.lastStatus ? ' · ' + a.lastStatus : '') + '</div></div>' + testBadge + '<div class="account-row-actions"><button class="btn btn-sm btn-success" onclick="testAccount(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Test</button>' + (platform !== 'bluesky' ? '<button class="btn btn-sm" onclick="refreshCookies(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Refresh cookies</button>' : '') + '<button class="btn btn-sm btn-danger" onclick="removeAccount(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Remove</button></div></div>';
+    }).join('');
+  }
+
+  async function testAccount(platform, accountId) {
+    const key = platform + ':' + accountId;
+    testResults[key] = 'pending';
+    loadAccountsView();
+    try {
+      const data = await api('POST', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId) + '/test');
+      testResults[key] = data.success ? 'ok' : 'fail';
+      showToast(data.success ? 'Login successful!' : 'Login failed: ' + (data.error || 'Unknown'), data.success ? 'success' : 'error');
+    } catch { testResults[key] = 'fail'; showToast('Test failed', 'error'); }
+    loadAccountsView();
+  }
+
+  async function refreshCookies(platform, accountId) {
+    if (!confirm('A Chrome window will open. Log in to ' + platform + ' as ' + accountId + ', then close it. Continue?')) return;
+    showToast('Opening browser for cookie capture...', 'success');
+    try {
+      await api('POST', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId) + '/extract-cookies');
+      showToast('Cookies refreshed', 'success');
+    } catch (err) {
+      showToast('Cookie refresh failed: ' + (err.message || 'unknown'), 'error');
+    }
+  }
+
+  async function removeAccount(platform, accountId) {
+    if (!confirm('Remove ' + accountId + '?')) return;
+    const data = await api('DELETE', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId));
+    if (data.success) { showToast('Account removed', 'success'); await loadAccountsView(); await loadAccounts(); loadAccountCheckboxes(); }
+    else showToast(data.error || 'Failed', 'error');
+  }
+
+  function openAddModal(platform) {
+    document.getElementById('add-modal').classList.remove('hidden');
+    document.getElementById('modal-platform').value = platform;
+    ['modal-account-id','modal-group-name','modal-username','modal-password','modal-handle','modal-app-password'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+    document.getElementById('modal-error').textContent = '';
+    document.getElementById('modal-save-btn').textContent = 'Add Account';
+    document.getElementById('modal-save-btn').disabled = false;
+    onPlatformChange();
+  }
+
+  function closeAddModal() { document.getElementById('add-modal').classList.add('hidden'); }
+
+  function onPlatformChange() {
+    const platform = document.getElementById('modal-platform').value;
+    document.getElementById('fl-fields').style.display = platform === 'bluesky' ? 'none' : 'block';
+    document.getElementById('bs-fields').style.display = platform === 'bluesky' ? 'block' : 'none';
+    const cfg = PLATFORMS[platform] || PLATFORMS.fetlife;
+    document.getElementById('modal-title').textContent = 'Add ' + cfg.label + ' Account';
+  }
+
+  async function saveAccount() {
+    const platform = document.getElementById('modal-platform').value;
+    const accountId = document.getElementById('modal-account-id').value.trim();
+    const groupName = document.getElementById('modal-group-name').value.trim();
+    const errEl = document.getElementById('modal-error');
+    const btn = document.getElementById('modal-save-btn');
+    if (!accountId) { errEl.textContent = 'Account ID is required'; return; }
+    let body = { platform, accountId, groupName };
+    if (platform === 'bluesky') {
+      const handle = document.getElementById('modal-handle').value.trim();
+      const appPassword = document.getElementById('modal-app-password').value.trim();
+      if (!handle || !appPassword) { errEl.textContent = 'Handle and app password required'; return; }
+      body.handle = handle; body.appPassword = appPassword;
+    } else {
+      const username = document.getElementById('modal-username').value.trim();
+      const password = document.getElementById('modal-password').value;
+      if (!username || !password) { errEl.textContent = 'Username and password required'; return; }
+      body.username = username; body.password = password;
+    }
+    btn.textContent = 'Saving...'; btn.disabled = true; errEl.textContent = '';
+    try {
+      const data = await api('POST', '/api/accounts', body);
+      if (data.success) {
+        showToast('Account added!', 'success');
+        closeAddModal();
+        await loadAccountsView(); await loadAccounts(); loadAccountCheckboxes();
+        if (platform !== 'bluesky') {
+          showToast('Extracting cookies in background...', 'success');
+          api('POST', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId) + '/extract-cookies')
+            .then(() => showToast('Cookie extraction complete', 'success'))
+            .catch(() => showToast('Cookie extraction failed — run setup-cookies.js manually', 'error'));
+        }
+      } else { errEl.textContent = data.error || 'Failed'; btn.textContent = 'Add Account'; btn.disabled = false; }
+    } catch (err) { errEl.textContent = err.message; btn.textContent = 'Add Account'; btn.disabled = false; }
+  }
+
+  document.getElementById('add-modal').addEventListener('click', function(e) { if (e.target === this) closeAddModal(); });
+
+  // ── Compose ───────────────────────────────────────────────────────────────
+  function setPostType(type) {
+    currentPostType = type;
+    document.getElementById('tab-text').classList.toggle('active', type === 'text');
+    document.getElementById('tab-image').classList.toggle('active', type === 'image');
+    document.getElementById('text-fields').style.display = type === 'text' ? 'block' : 'none';
+    document.getElementById('image-fields').style.display = type === 'image' ? 'block' : 'none';
+    document.getElementById('post-preview-images').style.display = type === 'image' && uploadedImages.length > 0 ? 'block' : 'none';
+  }
+
+  function loadAccountCheckboxes() {
+    const container = document.getElementById('account-checkboxes');
+    const relevant = allAccounts.filter(a => selectedPlatforms.size === 0 || selectedPlatforms.has(a.platform));
+    if (relevant.length === 0) { container.innerHTML = '<div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);padding:8px 0">Select a platform above to see accounts</div>'; return; }
+    container.innerHTML = relevant.map(a => {
+      const id = a.platform + ':' + a.accountId;
+      const isSelected = selectedAccounts.has(id);
+      const cfg = PLATFORMS[a.platform] || PLATFORMS.fetlife;
+      const identifier = a.handle || a.username || a.accountId;
+      return '<div class="account-check' + (isSelected ? ' selected' : '') + '" data-id="' + escHtml(id) + '"><input type="checkbox"' + (isSelected ? ' checked' : '') + '>' + platformIcon(cfg, 'platform-icon-lg') + '<span class="account-check-label">' + escHtml(a.groupName || a.accountId) + '</span><span class="account-check-handle">' + escHtml(identifier) + '</span></div>';
+    }).join('');
+    container.querySelectorAll('.account-check').forEach(el => {
+      el.addEventListener('click', function() {
+        const id = this.getAttribute('data-id');
+        const cb = this.querySelector('input');
+        if (selectedAccounts.has(id)) { selectedAccounts.delete(id); this.classList.remove('selected'); cb.checked = false; }
+        else { selectedAccounts.add(id); this.classList.add('selected'); cb.checked = true; }
+        cpRefreshTemplateDropdowns();
+      });
+    });
+    cpRefreshTemplateDropdowns();
+  }
+
+  const FETLIFE_LIMIT = 369;
+  function updateCharCount() {
+    const isImage = currentPostType === 'image';
+    const text = isImage ? document.getElementById('image-caption').value : document.getElementById('compose-text').value;
+    const ccId = isImage ? 'char-count-img' : 'char-count';
+    const el = document.getElementById(ccId);
+    const remaining = FETLIFE_LIMIT - text.length;
+    el.textContent = text.length + ' / ' + FETLIFE_LIMIT;
+    el.style.color = remaining < 0 ? 'var(--danger)' : (remaining <= 30 ? '#f59e0b' : '');
+    document.getElementById('post-preview').textContent = text;
+  }
+
+  function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+  function handleDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+
+  function handleDrop(e) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    processImageFiles(Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/')));
+  }
+
+  function handleImageFiles(event) { processImageFiles(Array.from(event.target.files)); event.target.value = ''; }
+
+  function processImageFiles(files) {
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => { uploadedImages.push({ data: e.target.result.split(',')[1], mimeType: file.type, name: file.name }); renderImageGrid(); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderImageGrid() {
+    const grid = document.getElementById('image-grid');
+    const badge = document.getElementById('image-limit-badge');
+    const previewGrid = document.getElementById('preview-image-grid');
+    const previewSection = document.getElementById('post-preview-images');
+    if (badge) badge.textContent = uploadedImages.length + ' file(s) added';
+    if (grid) grid.innerHTML = uploadedImages.map((img, i) => '<div class="image-thumb"><img src="data:' + img.mimeType + ';base64,' + img.data + '" alt=""><button class="img-remove" onclick="removeImage(' + i + ')">×</button><span class="img-num">' + (i+1) + '</span></div>').join('');
+    if (previewGrid) previewGrid.innerHTML = uploadedImages.map(img => '<img src="data:' + img.mimeType + ';base64,' + img.data + '" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border)" alt="">').join('');
+    if (previewSection) previewSection.style.display = uploadedImages.length > 0 && currentPostType === 'image' ? 'block' : 'none';
+  }
+
+  function removeImage(i) { uploadedImages.splice(i, 1); renderImageGrid(); }
+
+  async function schedulePost() {
+    const err = validateCompose();
+    if (err) { document.getElementById('compose-error').textContent = err; return; }
+    const t = document.getElementById('schedule-time').value;
+    if (!t) { document.getElementById('compose-error').textContent = 'Please select a date and time'; return; }
+    await submitPost(new Date(t).toISOString());
+  }
+
+  async function scheduleNow() {
+    const err = validateCompose();
+    if (err) { document.getElementById('compose-error').textContent = err; return; }
+    await submitPost(new Date(Date.now() + 5000).toISOString());
+  }
+
+  function validateCompose() {
+    if (selectedAccounts.size === 0) return 'Select at least one account';
+    const text = currentPostType === 'image' ? document.getElementById('image-caption').value.trim() : document.getElementById('compose-text').value.trim();
+    if (!text && currentPostType === 'text') return 'Write something first';
+    if (currentPostType === 'image' && uploadedImages.length === 0) return 'Add at least one image';
+    if (text.length > FETLIFE_LIMIT) return 'FetLife limit is ' + FETLIFE_LIMIT + ' characters (currently ' + text.length + ')';
+    return null;
+  }
+
+  async function submitPost(scheduledAt) {
+    document.getElementById('compose-error').textContent = '';
+    const isImage = currentPostType === 'image';
+    const content = isImage ? document.getElementById('image-caption').value.trim() : document.getElementById('compose-text').value.trim();
+    const platforms = [...new Set([...selectedAccounts].map(id => id.split(':')[0]))];
+    const body = { platforms, accountIds: [...selectedAccounts], content, scheduledAt, postType: isImage ? 'picture' : 'status' };
+    if (isImage) body.images = uploadedImages;
+    const data = await api('POST', '/api/posts', body);
+    const results = data.results || [];
+    const failed = results.filter(r => !r.success);
+    if (failed.length === 0) {
+      showToast('Scheduled for ' + results.length + ' account(s)', 'success');
+      document.getElementById('compose-text').value = '';
+      document.getElementById('image-caption').value = '';
+      uploadedImages = []; renderImageGrid(); updateCharCount(); loadDashboard();
+    } else { showToast(failed.length + ' post(s) failed', 'error'); }
+  }
+
+  // ── Multi-Post ────────────────────────────────────────────────────────────
+  function slugifyId(s) { return s.replace(/[^a-z0-9]/gi, '_'); }
+
+  function mpSetPostType(type) {
+    mpPostType = type;
+    document.getElementById('mp-tab-text').classList.toggle('active', type === 'text');
+    document.getElementById('mp-tab-image').classList.toggle('active', type === 'image');
+    document.getElementById('mp-text-fields').style.display = type === 'text' ? 'block' : 'none';
+    document.getElementById('mp-image-fields').style.display = type === 'image' ? 'block' : 'none';
+    mpRenderPerAccount();
+  }
+
+  function mpLoadAccountPills() {
+    const container = document.getElementById('mp-acct-pills');
+    const flAccounts = allAccounts.filter(a => a.platform === 'fetlife');
+    if (flAccounts.length === 0) { container.innerHTML = '<div style="font-size:12px;color:var(--text2);font-family:var(--font-mono)">No FetLife accounts found.</div>'; return; }
+    container.innerHTML = flAccounts.map(a => {
+      const isSelected = mpSelectedAccounts.has(a.accountId);
+      return '<div class="mp-acct-pill' + (isSelected ? ' selected-fl' : '') + '" data-id="' + escHtml(a.accountId) + '" onclick="mpToggleAccount(\'' + escHtml(a.accountId) + '\', this)"><span class="platform-dot dot-fl"></span>' + escHtml(a.groupName || a.accountId) + '</div>';
+    }).join('');
+  }
+
+  function mpToggleAccount(id, el) {
+    if (mpSelectedAccounts.has(id)) { mpSelectedAccounts.delete(id); el.classList.remove('selected-fl'); delete mpCustomText[id]; delete mpCustomImages[id]; }
+    else { mpSelectedAccounts.add(id); el.classList.add('selected-fl'); }
+    mpRenderPerAccount();
+    mpRefreshTemplateDropdown();
+  }
+
+  function mpFmtChars(text) { return text.length + ' / ' + FETLIFE_LIMIT; }
+  function mpCharColor(text) {
+    const r = FETLIFE_LIMIT - text.length;
+    return r < 0 ? 'var(--danger)' : (r <= 30 ? '#f59e0b' : '');
+  }
+
+  function mpOnBaseChange() {
+    const base = mpGetBaseText();
+    const el = document.getElementById('mp-base-chars');
+    el.textContent = mpFmtChars(base);
+    el.style.color = mpCharColor(base);
+    mpSelectedAccounts.forEach(id => {
+      if (!mpCustomText[id]) {
+        const ta = document.getElementById('mp-ta-' + slugifyId(id));
+        if (ta) ta.value = base;
+      }
+      mpRenderDiff(id);
+      mpUpdateAccountCharCount(id);
+    });
+  }
+
+  function mpUpdateAccountCharCount(id) {
+    const s = slugifyId(id);
+    const el = document.getElementById('mp-chars-' + s);
+    if (!el) return;
+    const cur = mpCustomText[id] || mpGetBaseText();
+    el.textContent = mpFmtChars(cur);
+    el.style.color = mpCharColor(cur);
+  }
+
+  function mpGetBaseText() { return mpPostType === 'image' ? document.getElementById('mp-base-caption').value : document.getElementById('mp-base-text').value; }
+
+  function mpRenderPerAccount() {
+    const section = document.getElementById('mp-per-acct-section');
+    const selArr = [...mpSelectedAccounts];
+    if (selArr.length === 0) { section.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2);font-size:13px;font-family:var(--font-mono)">Select accounts above to customize per-account posts</div>'; return; }
+    const base = mpGetBaseText();
+    section.innerHTML = selArr.map(id => {
+      const s = slugifyId(id);
+      const acct = allAccounts.find(a => a.accountId === id);
+      const name = acct ? (acct.groupName || id) : id;
+      const cur = mpCustomText[id] || base;
+      return '<div class="mp-per-acct"><div class="mp-per-acct-header"><span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><span class="platform-dot dot-fl"></span>' + escHtml(name) + '</span><span style="display:flex;align-items:center;gap:8px"><span class="mp-sync-badge synced" id="mp-badge-' + s + '">In sync</span><span class="char-count" id="mp-chars-' + s + '" style="font-size:10px"></span><button class="btn btn-sm" onclick="mpResetAccount(\'' + id + '\')">Reset</button></span></div><div class="mp-per-acct-body"><div class="mp-edit-pane"><div class="mp-pane-label">Customize</div><textarea class="compose-text" id="mp-ta-' + s + '" rows="4" maxlength="369" oninput="mpOnAccountEdit(\'' + id + '\', this.value)">' + escHtml(cur) + '</textarea></div><div class="mp-diff-pane"><div class="mp-pane-label">Diff vs base</div><div class="mp-diff-box" id="mp-diff-' + s + '"></div></div></div></div>';
+    }).join('');
+    selArr.forEach(id => { mpRenderDiff(id); mpUpdateAccountCharCount(id); });
+  }
+
+  function mpOnAccountEdit(id, value) { const base = mpGetBaseText(); mpCustomText[id] = value === base ? null : value; mpRenderDiff(id); mpUpdateAccountCharCount(id); }
+
+  function mpResetAccount(id) { mpCustomText[id] = null; const ta = document.getElementById('mp-ta-' + slugifyId(id)); if (ta) ta.value = mpGetBaseText(); mpRenderPerAccount(); }
+
+  function mpRenderDiff(id) {
+    const s = slugifyId(id); const diffEl = document.getElementById('mp-diff-' + s); const badgeEl = document.getElementById('mp-badge-' + s);
+    if (!diffEl) return;
+    const base = mpGetBaseText(); const custom = mpCustomText[id] || base;
+    if (base === custom) { diffEl.innerHTML = '<span class="diff-same">' + escHtml(custom || '(empty)') + '</span>'; if (badgeEl) { badgeEl.textContent = 'In sync'; badgeEl.className = 'mp-sync-badge synced'; } return; }
+    const bw = base.split(/(\s+)/); const cw = custom.split(/(\s+)/); const ml = Math.max(bw.length, cw.length); let html = '';
+    for (let i = 0; i < ml; i++) {
+      if (i < bw.length && i < cw.length) { html += bw[i] === cw[i] ? '<span class="diff-same">' + escHtml(bw[i]) + '</span>' : '<span class="diff-del">' + escHtml(bw[i]) + '</span><span class="diff-add">' + escHtml(cw[i]) + '</span>'; }
+      else if (i >= bw.length) html += '<span class="diff-add">' + escHtml(cw[i]) + '</span>';
+      else html += '<span class="diff-del">' + escHtml(bw[i]) + '</span>';
+    }
+    diffEl.innerHTML = html; if (badgeEl) { badgeEl.textContent = 'Customized'; badgeEl.className = 'mp-sync-badge custom'; }
+  }
+
+  function mpHandleBaseImages(event) { Array.from(event.target.files).forEach(file => { const r = new FileReader(); r.onload = e => { mpBaseImages.push({ data: e.target.result.split(',')[1], mimeType: file.type, name: file.name }); mpRenderBaseGrid(); }; r.readAsDataURL(file); }); event.target.value = ''; }
+  function mpHandleDrop(e) { e.preventDefault(); e.currentTarget.classList.remove('drag-over'); Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')).forEach(file => { const r = new FileReader(); r.onload = ev => { mpBaseImages.push({ data: ev.target.result.split(',')[1], mimeType: file.type, name: file.name }); mpRenderBaseGrid(); }; r.readAsDataURL(file); }); }
+  function mpRenderBaseGrid() { const g = document.getElementById('mp-base-image-grid'); if (g) g.innerHTML = mpBaseImages.map((img,i) => '<div class="image-thumb"><img src="data:' + img.mimeType + ';base64,' + img.data + '" alt=""><button class="img-remove" onclick="mpBaseImages.splice(' + i + ',1);mpRenderBaseGrid()">×</button></div>').join(''); }
+
+  async function mpSchedule() { const t = document.getElementById('mp-schedule-time').value; if (!t) { document.getElementById('mp-error').textContent = 'Select a date and time'; return; } await mpSubmit(new Date(t).toISOString()); }
+  async function mpScheduleNow() { await mpSubmit(new Date(Date.now() + 5000).toISOString()); }
+
+  async function mpSubmit(scheduledAt) {
+    const errEl = document.getElementById('mp-error'); errEl.textContent = '';
+    if (mpSelectedAccounts.size === 0) { errEl.textContent = 'Select at least one account'; return; }
+    const base = mpGetBaseText();
+    if (!base && mpPostType === 'text') { errEl.textContent = 'Write a base post first'; return; }
+    for (const id of mpSelectedAccounts) {
+      const t = mpCustomText[id] || base;
+      if (t.length > FETLIFE_LIMIT) {
+        const acct = (allAccounts || []).find(a => a.accountId === id);
+        const name = acct ? (acct.groupName || id) : id;
+        errEl.textContent = name + ' is over the FetLife ' + FETLIFE_LIMIT + '-char limit (' + t.length + ')';
+        return;
+      }
+    }
+    const results = [];
+    for (const accountId of mpSelectedAccounts) {
+      const content = mpCustomText[accountId] || base;
+      const images = mpPostType === 'image' ? (mpCustomImages[accountId] || mpBaseImages) : [];
+      const postType = mpPostType === 'image' ? 'picture' : 'status';
+      try {
+        await api('POST', '/api/posts', { platforms: ['fetlife'], accountIds: ['fetlife:' + accountId], content, scheduledAt, postType, images: images.length ? images : undefined });
+        results.push({ accountId, success: true });
+      } catch (err) { results.push({ accountId, success: false, error: err.message }); }
+    }
+    const failed = results.filter(r => !r.success);
+    if (failed.length === 0) { showToast('Scheduled for ' + results.length + ' account(s)', 'success'); loadDashboard(); }
+    else showToast(failed.length + ' failed', 'error');
+  }
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  function showToast(msg, type) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'show ' + (type || 'success'); setTimeout(() => t.className = '', 4000); }
+  function escHtml(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  if (token) showApp();
+  const dt = new Date(Date.now() + 3600000); dt.setSeconds(0,0);
+  const dtStr = dt.toISOString().slice(0,16);
+  document.getElementById('schedule-time').value = dtStr;
+  document.getElementById('mp-schedule-time').value = dtStr;
+  document.getElementById('gp-schedule').value = dtStr;
+
+  // ── Marketing Calendar ───────────────────────────────────────────────────
+  let calCurrentMonth = (() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; })();
+
+  function calDayKey(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function calShiftMonth(delta) {
+    calCurrentMonth = new Date(calCurrentMonth.getFullYear(), calCurrentMonth.getMonth() + delta, 1);
+    calRender();
+  }
+
+  function calGoToday() {
+    const d = new Date(); d.setDate(1); d.setHours(0,0,0,0);
+    calCurrentMonth = d;
+    calRender();
+  }
+
+  function calRender() {
+    document.getElementById('cal-month-label').textContent =
+      calCurrentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+    const orgFilter = document.getElementById('cal-org').value;
+    const filtered = allPosts.filter(p => {
+      if (p.status !== 'scheduled') return false;
+      if (orgFilter && (p.groupName || p.accountId) !== orgFilter) return false;
+      return true;
+    });
+
+    // Bucket by local-date key.
+    const byDay = {};
+    filtered.forEach(p => {
+      const key = calDayKey(new Date(p.scheduledAt));
+      (byDay[key] = byDay[key] || []).push(p);
+    });
+    Object.values(byDay).forEach(arr => arr.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)));
+
+    // Build 6-week grid starting from the Sunday before the 1st of month.
+    const startDay = new Date(calCurrentMonth);
+    startDay.setDate(1 - calCurrentMonth.getDay());
+    const todayKey = calDayKey(new Date());
+
+    const dowHeader = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+      .map(d => '<div class="cal-dow">' + d + '</div>').join('');
+    const cells = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(startDay); d.setDate(startDay.getDate() + i);
+      const key = calDayKey(d);
+      const posts = byDay[key] || [];
+      const otherMonth = d.getMonth() !== calCurrentMonth.getMonth();
+      const isToday = key === todayKey;
+      cells.push(calRenderCell(d, posts, otherMonth, isToday));
+    }
+    document.getElementById('cal-grid').innerHTML = dowHeader + cells.join('');
+  }
+
+  function calRenderCell(d, posts, otherMonth, isToday) {
+    const visible = posts.slice(0, 4);
+    const overflow = posts.length - visible.length;
+    const chips = visible.map(calRenderChip).join('');
+    const dayKey = calDayKey(d);
+    const more = overflow > 0
+      ? '<div class="cal-more" onclick="event.stopPropagation();calOpenDay(\'' + dayKey + '\')">+' + overflow + ' more</div>'
+      : '';
+    return '<div class="cal-cell' + (otherMonth ? ' other-month' : '') + (isToday ? ' today' : '') +
+      '" style="cursor:pointer" onclick="calOpenDayPicker(event,\'' + dayKey + '\')">' +
+      '<div class="cal-day-num">' + d.getDate() + '</div>' +
+      '<div class="cal-chips">' + chips + more + '</div>' +
+    '</div>';
+  }
+
+  function calRenderChip(post) {
+    const cfg = PLATFORMS[post.platform] || PLATFORMS.fetlife;
+    const time = new Date(post.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const label = (post.groupName || post.accountId || '').slice(0, 24);
+    const id = post.platform + '|' + post.postId;
+    return '<div class="cal-chip" style="border-left-color:' + cfg.color + ';background:' + cfg.bg + '"' +
+      ' onclick="event.stopPropagation();calOpenPost(\'' + escAttr(id) + '\')" title="' + escAttr(post.content || '') + '">' +
+      '<span class="cal-chip-time">' + time + '</span>' + platformIcon(cfg) +
+      '<span class="cal-chip-label">' + escHtml(label) + '</span>' +
+    '</div>';
+  }
+
+  // Day-overflow expander: open the side panel listing all posts that day.
+  window.calOpenDay = function (dayKey) {
+    const all = allPosts.filter(p => p.status === 'scheduled' && calDayKey(new Date(p.scheduledAt)) === dayKey);
+    const orgFilter = document.getElementById('cal-org').value;
+    const list = (orgFilter ? all.filter(p => (p.groupName || p.accountId) === orgFilter) : all)
+      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    const html =
+      '<h3>Posts on ' + new Date(dayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' }) + '</h3>' +
+      list.map(p => {
+        const cfg = PLATFORMS[p.platform] || PLATFORMS.fetlife;
+        const time = new Date(p.scheduledAt).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true });
+        const id = p.platform + '|' + p.postId;
+        return '<div class="cal-chip" style="border-left-color:' + cfg.color + ';background:' + cfg.bg + ';margin-bottom:6px;padding:6px 8px;font-size:11px"' +
+          ' onclick="calOpenPost(\'' + escAttr(id) + '\')">' +
+          '<span class="cal-chip-time">' + time + '</span>' + platformIcon(cfg) +
+          '<span class="cal-chip-label">' + escHtml((p.groupName || p.accountId || '').slice(0, 36)) + '</span>' +
+        '</div>';
+      }).join('');
+    document.getElementById('cal-side-body').innerHTML = html;
+    document.getElementById('cal-side').classList.add('open');
+  };
+
+  window.calOpenPost = function (id) {
+    const sep = id.indexOf('|');
+    const platform = id.slice(0, sep);
+    const postId = id.slice(sep + 1);
+    const post = allPosts.find(p => p.platform === platform && p.postId === postId);
+    if (!post) return;
+    const cfg = PLATFORMS[platform] || PLATFORMS.fetlife;
+    const when = new Date(post.scheduledAt).toLocaleString();
+    const groupTarget = post.groupId ? '<dt>FetLife Group ID</dt><dd>' + escHtml(post.groupId) + '</dd>' : '';
+    const eventUrl = post.eventUrl ? '<dt>Event URL</dt><dd><a href="' + escAttr(post.eventUrl) + '" target="_blank" style="color:var(--accent)">' + escHtml(post.eventUrl) + '</a></dd>' : '';
+    const title = post.title ? '<dt>Title</dt><dd>' + escHtml(post.title) + '</dd>' : '';
+    const bodyText = post.body || post.content || '';
+    document.getElementById('cal-side-body').innerHTML =
+      '<h3>' + platformIcon(cfg, 'platform-icon-lg') + ' ' + escHtml(cfg.label) + ' post</h3>' +
+      '<dl>' +
+        '<dt>Status</dt><dd>' + escHtml(post.status) + '</dd>' +
+        '<dt>Organization</dt><dd>' + escHtml(post.groupName || '(no group)') + '</dd>' +
+        '<dt>Account</dt><dd>' + escHtml(post.accountId) + '</dd>' +
+        '<dt>Post type</dt><dd>' + escHtml(post.postType || 'status') + '</dd>' +
+        '<dt>Scheduled for</dt><dd>' + escHtml(when) + '</dd>' +
+        groupTarget + eventUrl + title +
+      '</dl>' +
+      '<div class="compose-label" style="font-size:11px;margin-top:0">Content</div>' +
+      '<div class="post-body-preview">' + escHtml(bodyText) + '</div>' +
+      ((Array.isArray(post.images) && post.images.length)
+        ? '<div class="compose-label" style="font-size:11px;margin-top:10px">Images (' + post.images.length + ')</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">' + post.images.map(img => {
+              if (!img) return '';
+              if (typeof img === 'string') return '<img loading="lazy" src="' + img + '" style="width:90px;height:90px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">';
+              if (img.data && img.mimeType) return '<img loading="lazy" src="data:' + img.mimeType + ';base64,' + img.data + '" alt="' + escHtml(img.altText || img.name || '') + '" title="' + escHtml(img.name || '') + '" style="width:90px;height:90px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">';
+              return '';
+            }).join('') + '</div>'
+        : '') +
+      '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">' +
+        (post.status === 'scheduled' ? '<button class="btn btn-accent" onclick="openEditPostModal(\'' + escAttr(platform) + '\',\'' + escAttr(postId) + '\')">Edit</button>' : '') +
+        (post.status === 'scheduled' ? '<button class="btn btn-danger" onclick="calCancelPost(\'' + escAttr(platform) + '\',\'' + escAttr(postId) + '\')">Cancel post</button>' : '') +
+        '<button class="btn" onclick="calClosePanel()">Close</button>' +
+      '</div>';
+    document.getElementById('cal-side').classList.add('open');
+  };
+
+  window.calClosePanel = function () { document.getElementById('cal-side').classList.remove('open'); };
+
+  window.calCancelPost = async function (platform, postId) {
+    if (!confirm('Cancel this scheduled post?')) return;
+    const r = await api('DELETE', '/api/posts/' + platform + '/' + encodeURIComponent(postId));
+    if (r && r.success) {
+      showToast('Post cancelled', 'success');
+      calClosePanel();
+      loadDashboard();
+    } else {
+      showToast('Cancel failed', 'error');
+    }
+  };
+
+  // ── Calendar day-picker (click a date → compose / group cross-post) ────────
+  let calPickerDayKey = null;
+
+  function calPrefillTimeForDay(dayKey) {
+    const targetNoon = new Date(dayKey + 'T12:00:00');
+    const now = new Date();
+    let result;
+    if (targetNoon.toDateString() === now.toDateString() && targetNoon < now) {
+      result = new Date(now.getTime() + 60 * 60 * 1000);
+      result.setMinutes(0, 0, 0);
+    } else {
+      result = targetNoon;
+    }
+    const pad = n => String(n).padStart(2, '0');
+    return result.getFullYear() + '-' + pad(result.getMonth()+1) + '-' + pad(result.getDate()) +
+      'T' + pad(result.getHours()) + ':' + pad(result.getMinutes());
+  }
+
+  window.calOpenDayPicker = function (ev, dayKey) {
+    if (ev.target.closest('.cal-chip') || ev.target.closest('.cal-more')) return;
+
+    const today = new Date(); today.setHours(0,0,0,0);
+    const target = new Date(dayKey + 'T12:00:00'); target.setHours(0,0,0,0);
+    if (target < today) {
+      showToast('Cannot schedule posts in the past', 'error');
+      return;
+    }
+
+    calPickerDayKey = dayKey;
+    document.getElementById('cal-day-picker-date').textContent =
+      new Date(dayKey + 'T12:00:00').toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+    document.getElementById('cal-day-picker').classList.remove('hidden');
+  };
+
+  function calClosePicker() {
+    document.getElementById('cal-day-picker').classList.add('hidden');
+    calPickerDayKey = null;
+  }
+
+  // ── Insert event URL ──────────────────────────────────────────────────────
+  let ieTargetId = null;
+  let ieEvents = { organizing: [], attending: [] };
+
+  function ieGuessAccount() {
+    if (ieTargetId === 'gp-body') {
+      const v = document.getElementById('gp-account')?.value;
+      if (v) return v;
+    }
+    if (mpSelectedAccounts && mpSelectedAccounts.size) return [...mpSelectedAccounts][0];
+    if (selectedAccounts && selectedAccounts.size) {
+      const first = [...selectedAccounts][0];
+      return first.split(':').slice(1).join(':');
+    }
+    const fl = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    return fl[0]?.accountId || '';
+  }
+
+  window.openInsertEventModal = function (targetId) {
+    ieTargetId = targetId;
+    const sel = document.getElementById('ie-account');
+    const fl = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    sel.innerHTML = fl.length
+      ? fl.map(a => '<option value="' + escHtml(a.accountId) + '">' + escHtml(a.groupName || a.accountId) + '</option>').join('')
+      : '<option value="">No FetLife accounts — add one in Accounts</option>';
+    const guess = ieGuessAccount();
+    if (guess && [...sel.options].some(o => o.value === guess)) sel.value = guess;
+    document.getElementById('ie-error').textContent = '';
+    document.getElementById('ie-meta').textContent = '';
+    document.getElementById('ie-events-list').innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:14px;text-align:center">Loading events…</div>';
+    document.getElementById('insert-event-modal').classList.remove('hidden');
+    if (sel.value) ieAccountChanged();
+  };
+
+  function closeInsertEventModal() {
+    document.getElementById('insert-event-modal').classList.add('hidden');
+    ieTargetId = null;
+  }
+
+  async function ieAccountChanged() {
+    const acct = document.getElementById('ie-account').value;
+    if (!acct) return;
+    document.getElementById('ie-events-list').innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:14px;text-align:center">Loading events…</div>';
+    try {
+      const [orgRes, attRes] = await Promise.all([
+        fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events', { headers: { 'x-ui-token': token } }).then(r => r.json()),
+        fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events/attending', { headers: { 'x-ui-token': token } }).then(r => r.json()),
+      ]);
+      ieEvents.organizing = (orgRes && orgRes.events) || [];
+      ieEvents.attending = (attRes && attRes.events) || [];
+      ieRenderEventsList();
+      const lastOrg = orgRes?.fetchedAt ? new Date(orgRes.fetchedAt).toLocaleString() : 'never';
+      const lastAtt = attRes?.fetchedAt ? new Date(attRes.fetchedAt).toLocaleString() : 'never';
+      document.getElementById('ie-meta').textContent = 'Organizing refreshed: ' + lastOrg + ' · Attending refreshed: ' + lastAtt;
+    } catch (err) {
+      document.getElementById('ie-error').textContent = 'Failed to load events: ' + err.message;
+    }
+  }
+
+  function ieRenderEventsList() {
+    const all = [
+      ...ieEvents.organizing.map(e => ({ ...e, _kind: 'organizing' })),
+      ...ieEvents.attending.map(e => ({ ...e, _kind: 'attending' })),
+    ];
+    // De-dupe — an event you organize will also appear in attending. Prefer "organizing" tag.
+    const seen = new Map();
+    for (const e of all) {
+      const existing = seen.get(e.url);
+      if (!existing || (existing._kind === 'attending' && e._kind === 'organizing')) seen.set(e.url, e);
+    }
+    const merged = [...seen.values()].sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+    const list = document.getElementById('ie-events-list');
+    if (!merged.length) {
+      list.innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:14px;text-align:center">No upcoming events. Click Refresh.</div>';
+      return;
+    }
+    list.innerHTML = merged.map(e => {
+      const tagColor = e._kind === 'organizing' ? '#dc2626' : '#6b7280';
+      const tagLabel = e._kind === 'organizing' ? 'Organizing' : 'Attending';
+      const meta = [e.dateText, e.location].filter(Boolean).join(' · ');
+      return '<div class="ie-row" onclick="ieInsertEvent(\'' + escAttr(e.url) + '\')" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;flex-direction:column;gap:3px">' +
+        '<div style="display:flex;align-items:center;gap:8px"><span style="background:' + tagColor + ';color:white;font-size:9px;padding:1px 6px;border-radius:3px;font-family:var(--font-mono);text-transform:uppercase">' + tagLabel + '</span><span style="font-size:13px;color:var(--text0);font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(e.title || '(untitled)') + '</span></div>' +
+        (meta ? '<div style="font-size:11px;color:var(--text2);font-family:var(--font-mono);padding-left:2px">' + escHtml(meta) + '</div>' : '') +
+      '</div>';
+    }).join('');
+    // Hover effect via inline event handlers — quick enough not to bother with CSS class.
+    list.querySelectorAll('.ie-row').forEach(row => {
+      row.addEventListener('mouseenter', () => row.style.background = 'var(--bg1)');
+      row.addEventListener('mouseleave', () => row.style.background = '');
+    });
+  }
+
+  async function ieRefreshEvents() {
+    const acct = document.getElementById('ie-account').value;
+    if (!acct) return;
+    const btn = document.getElementById('ie-refresh-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'Refreshing…'; btn.disabled = true;
+    document.getElementById('ie-error').textContent = '';
+    try {
+      const [orgRes, attRes] = await Promise.all([
+        fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events/refresh', { method: 'POST', headers: { 'x-ui-token': token } }).then(r => r.json()),
+        fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events/attending/refresh', { method: 'POST', headers: { 'x-ui-token': token } }).then(r => r.json()),
+      ]);
+      ieEvents.organizing = (orgRes && orgRes.events) || [];
+      ieEvents.attending = (attRes && attRes.events) || [];
+      ieRenderEventsList();
+      document.getElementById('ie-meta').textContent = 'Refreshed: ' + new Date().toLocaleString();
+    } catch (err) {
+      document.getElementById('ie-error').textContent = 'Refresh failed: ' + err.message;
+    } finally {
+      btn.textContent = orig; btn.disabled = false;
+    }
+  }
+
+  window.ieInsertEvent = function (url) {
+    if (!ieTargetId) return;
+    const target = document.getElementById(ieTargetId);
+    if (!target) return;
+    const cur = target.value || '';
+    const start = target.selectionStart ?? cur.length;
+    const end = target.selectionEnd ?? cur.length;
+    const before = cur.slice(0, start);
+    const after = cur.slice(end);
+    const needLeadingNewline = before.length > 0 && !before.endsWith('\n');
+    const needTrailingNewline = after.length > 0 && !after.startsWith('\n');
+    const insertion = (needLeadingNewline ? '\n' : '') + url + (needTrailingNewline ? '\n' : '');
+    target.value = before + insertion + after;
+    const newPos = start + insertion.length;
+    target.focus();
+    target.setSelectionRange(newPos, newPos);
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    closeInsertEventModal();
+    showToast('Event URL inserted', 'success');
+  };
+
+  function calComposeOnDate() {
+    if (!calPickerDayKey) return;
+    const localStr = calPrefillTimeForDay(calPickerDayKey);
+    calClosePicker();
+    showView('compose');
+    setTimeout(() => {
+      const el = document.getElementById('schedule-time');
+      if (el) el.value = localStr;
+    }, 50);
+  }
+
+  function calGroupPostOnDate() {
+    if (!calPickerDayKey) return;
+    const localStr = calPrefillTimeForDay(calPickerDayKey);
+    calClosePicker();
+    showView('grouppost');
+    setTimeout(() => {
+      const el = document.getElementById('gp-schedule');
+      if (el) el.value = localStr;
+    }, 50);
+  }
+
+  function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+  // ── Group Cross-Post (FetLife) ───────────────────────────────────────────
+  let gpEvents = [];
+  let gpGroups = [];
+  let gpSelectedGroups = new Set();
+
+  function gpEl(id) { return document.getElementById(id); }
+  function gpFlash(field, msg, isErr) {
+    const el = gpEl(field); if (!el) return;
+    el.style.color = isErr ? 'var(--danger)' : 'var(--text2)';
+    el.textContent = msg;
+  }
+
+  async function gpLoadAccounts() {
+    const sel = gpEl('gp-account');
+    const fetlifeAccts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    sel.innerHTML = '<option value="">— choose a FetLife account —</option>' +
+      fetlifeAccts.map(a => '<option value="' + escHtml(a.accountId) + '">' + escHtml(a.groupName || a.accountId) + ' (' + escHtml(a.username || '') + ')</option>').join('');
+    if (!fetlifeAccts.length) sel.innerHTML = '<option value="">No FetLife accounts — add one in Accounts</option>';
+    // Reset state when revisiting
+    gpEvents = []; gpGroups = []; gpSelectedGroups.clear();
+    gpEl('gp-event').innerHTML = '<option value="">— choose an event —</option>';
+    gpEl('gp-event').disabled = true;
+    gpEl('gp-event-meta').textContent = '';
+    gpEl('gp-title').value = '';
+    gpEl('gp-body').value = '';
+    gpEl('gp-group-list').innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:8px 4px">Pick an account first.</div>';
+    gpEl('gp-group-count').textContent = '';
+    gpFlash('gp-result', '');
+    gpFlash('gp-error', '');
+  }
+
+  async function gpAccountChanged() {
+    const acct = gpEl('gp-account').value;
+    if (!acct) { gpLoadAccounts(); gpRefreshTemplateDropdown(); return; }
+    gpFlash('gp-error', '');
+    // Load cached groups + events in parallel.
+    const [gRes, eRes] = await Promise.all([
+      fetch('/api/fetlife/' + encodeURIComponent(acct) + '/groups',  { headers: { 'x-ui-token': token } }).then(r => r.json()),
+      fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events',  { headers: { 'x-ui-token': token } }).then(r => r.json()),
+    ]);
+    gpRenderGroups(gRes);
+    gpRenderEvents(eRes);
+    gpRefreshTemplateDropdown();
+  }
+
+  function gpRenderEvents(payload) {
+    gpEvents = (payload && payload.events) || [];
+    const sel = gpEl('gp-event');
+    if (!gpEvents.length) {
+      sel.innerHTML = '<option value="">No upcoming events — click Refresh</option>';
+      sel.disabled = true;
+      gpFlash('gp-event-meta', payload.fetchedAt ? ('Last refreshed ' + new Date(payload.fetchedAt).toLocaleString()) : 'Never refreshed', false);
+      return;
+    }
+    sel.innerHTML = '<option value="">— choose an event —</option>' +
+      gpEvents.map((e, i) => '<option value="' + i + '">' + escHtml(e.title) + (e.dateText ? '  ·  ' + escHtml(e.dateText) : '') + '</option>').join('');
+    sel.disabled = false;
+    gpFlash('gp-event-meta', 'Last refreshed ' + new Date(payload.fetchedAt).toLocaleString() + ' · ' + gpEvents.length + ' upcoming', false);
+  }
+
+  function gpRenderGroups(payload) {
+    gpGroups = (payload && payload.groups) || [];
+    gpSelectedGroups.clear();
+    const list = gpEl('gp-group-list');
+    if (!gpGroups.length) {
+      list.innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:8px 4px">No groups — click Refresh.</div>';
+      gpEl('gp-group-count').textContent = '';
+      return;
+    }
+    list.innerHTML = gpGroups.map(g =>
+      '<label class="account-check" style="cursor:pointer">' +
+        '<input type="checkbox" data-group-id="' + escHtml(g.id) + '" onchange="gpToggleGroup(this)">' +
+        '<span class="account-check-label">' + escHtml(g.name) + '</span>' +
+        '<span class="account-check-handle">id ' + escHtml(g.id) + '</span>' +
+      '</label>'
+    ).join('');
+    gpEl('gp-group-count').textContent = gpGroups.length + ' joined · ' + (payload.fetchedAt ? new Date(payload.fetchedAt).toLocaleString() : '');
+  }
+
+  window.gpToggleGroup = function (cb) {
+    const id = cb.getAttribute('data-group-id');
+    if (cb.checked) gpSelectedGroups.add(id); else gpSelectedGroups.delete(id);
+    cb.closest('.account-check').classList.toggle('selected', cb.checked);
+    gpRefreshTemplateDropdown();
+  };
+
+  async function gpRefreshGroups() {
+    const acct = gpEl('gp-account').value;
+    if (!acct) return gpFlash('gp-error', 'Pick an account first', true);
+    const btn = gpEl('gp-refresh-groups'); const orig = btn.textContent;
+    btn.textContent = '…'; btn.disabled = true;
+    gpFlash('gp-error', '');
+    try {
+      const r = await fetch('/api/fetlife/' + encodeURIComponent(acct) + '/groups/refresh',
+        { method: 'POST', headers: { 'x-ui-token': token } });
+      const payload = await r.json();
+      if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
+      gpRenderGroups(payload);
+    } catch (err) {
+      gpFlash('gp-error', 'Group refresh failed: ' + err.message, true);
+    } finally {
+      btn.textContent = orig; btn.disabled = false;
+    }
+  }
+
+  async function gpRefreshEvents() {
+    const acct = gpEl('gp-account').value;
+    if (!acct) return gpFlash('gp-error', 'Pick an account first', true);
+    const btn = gpEl('gp-refresh-events'); const orig = btn.textContent;
+    btn.textContent = '…'; btn.disabled = true;
+    gpFlash('gp-error', '');
+    try {
+      const r = await fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events/refresh',
+        { method: 'POST', headers: { 'x-ui-token': token } });
+      const payload = await r.json();
+      if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
+      gpRenderEvents(payload);
+    } catch (err) {
+      gpFlash('gp-error', 'Event refresh failed: ' + err.message, true);
+    } finally {
+      btn.textContent = orig; btn.disabled = false;
+    }
+  }
+
+  function gpFormatTitle(ev) {
+    // Title — Weekday Mon DD, h:mm AM/PM @ Location.
+    // We use ev.dateText (e.g. "Sat, Aug 1 at 7:00 PM") because it already reflects FetLife's formatting in the user's tz.
+    const datePart = (ev.dateText || '').replace(/^(\w+),\s/, '$1 ').replace(' at ', ', ');
+    const loc = ev.location || '';
+    return ev.title + (datePart ? ' — ' + datePart : '') + (loc ? ' @ ' + loc : '');
+  }
+
+  async function gpEventChanged() {
+    const idx = gpEl('gp-event').value;
+    if (idx === '') { gpEl('gp-title').value = ''; gpEl('gp-body').value = ''; return; }
+    const ev = gpEvents[parseInt(idx)];
+    if (!ev) return;
+    const acct = gpEl('gp-account').value;
+    gpEl('gp-title').value = gpFormatTitle(ev);
+    gpEl('gp-body').value = 'Loading description…';
+    gpFlash('gp-error', '');
+    try {
+      const r = await fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events/details?url=' + encodeURIComponent(ev.url),
+        { headers: { 'x-ui-token': token } });
+      const payload = await r.json();
+      if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
+      gpEl('gp-body').value = payload.description || '';
+    } catch (err) {
+      gpEl('gp-body').value = '';
+      gpFlash('gp-error', 'Could not load event description: ' + err.message, true);
+    }
+  }
+
+  async function gpSchedule() {
+    gpFlash('gp-error', ''); gpFlash('gp-result', '');
+    const acct = gpEl('gp-account').value;
+    const idx = gpEl('gp-event').value;
+    const title = gpEl('gp-title').value.trim();
+    const body = gpEl('gp-body').value.trim();
+    const when = gpEl('gp-schedule').value;
+    if (!acct) return gpFlash('gp-error', 'Pick an account', true);
+    if (idx === '') return gpFlash('gp-error', 'Pick an event', true);
+    if (!title) return gpFlash('gp-error', 'Title is empty', true);
+    if (!body) return gpFlash('gp-error', 'Body is empty', true);
+    if (!gpSelectedGroups.size) return gpFlash('gp-error', 'Pick at least one target group', true);
+    if (!when) return gpFlash('gp-error', 'Pick a schedule time', true);
+    const scheduledAt = new Date(when).toISOString();
+    if (new Date(scheduledAt) <= new Date()) return gpFlash('gp-error', 'Schedule time must be in the future', true);
+
+    const btn = gpEl('gp-submit'); btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Scheduling…';
+    try {
+      const ev = gpEvents[parseInt(idx)];
+      const r = await fetch('/api/fetlife/group-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-ui-token': token },
+        body: JSON.stringify({ accountId: acct, eventUrl: ev.url, title, body, groupIds: [...gpSelectedGroups], scheduledAt }),
+      });
+      const payload = await r.json();
+      if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
+      const fanout = payload.fanout || [];
+      gpFlash('gp-result',
+        'Scheduled ' + fanout.length + ' group post' + (fanout.length === 1 ? '' : 's') +
+        '. First fires ' + new Date(fanout[0].scheduledAt).toLocaleString() +
+        '; last fires ' + new Date(fanout[fanout.length - 1].scheduledAt).toLocaleString() + '.',
+        false);
+    } catch (err) {
+      gpFlash('gp-error', 'Schedule failed: ' + err.message, true);
+    } finally {
+      btn.textContent = orig; btn.disabled = false;
+    }
+  }
+
+  // ── Templates ─────────────────────────────────────────────────────────────
+  let tplCache = [];
+  let tplEditingId = null;
+
+  async function tplLoad() {
+    const data = await api('GET', '/api/templates').catch(() => ({ templates: [] }));
+    tplCache = data.templates || [];
+    return tplCache;
+  }
+
+  function tplAcctLabel(accountId) {
+    const a = (allAccounts || []).find(x => x.accountId === accountId);
+    return a ? (a.groupName || a.accountId) : accountId;
+  }
+
+  function tplGroupLabel(template) {
+    if (!template.groupId) return '';
+    return ' · group ' + template.groupId;
+  }
+
+  async function tplRenderList() {
+    const list = document.getElementById('tpl-list');
+    list.innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:8px">Loading…</div>';
+    await tplLoad();
+    if (!tplCache.length) {
+      list.innerHTML = '<div class="compose-card" style="text-align:center;padding:32px;color:var(--text2);font-size:13px;font-family:var(--font-mono)">No templates yet — click + New Template, or use "Save as template" while composing.</div>';
+      return;
+    }
+    list.innerHTML = tplCache.map(t =>
+      '<div class="compose-card" style="margin-bottom:10px;display:flex;align-items:flex-start;gap:14px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;color:var(--text0);margin-bottom:4px">' + escHtml(t.name) + '</div>' +
+          '<div style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-bottom:6px">' + escHtml(tplAcctLabel(t.accountId)) + escHtml(tplGroupLabel(t)) + (t.title ? ' · has title' : '') + '</div>' +
+          '<div style="font-size:12px;color:var(--text1);font-family:var(--font-mono);white-space:pre-wrap;max-height:80px;overflow:hidden;text-overflow:ellipsis">' + escHtml(t.body.slice(0, 240)) + (t.body.length > 240 ? '…' : '') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:6px">' +
+          '<button class="btn btn-sm" onclick="tplOpenEditor(\'' + t.id + '\')" style="font-size:11px">Edit</button>' +
+          '<button class="btn btn-sm" onclick="tplDelete(\'' + t.id + '\')" style="font-size:11px;color:var(--danger)">Delete</button>' +
+        '</div>' +
+      '</div>'
+    ).join('');
+  }
+
+  function tplOpenEditor(id) {
+    tplEditingId = id;
+    const acctSel = document.getElementById('tpl-account');
+    const flAccts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    acctSel.innerHTML = flAccts.length
+      ? flAccts.map(a => '<option value="' + escHtml(a.accountId) + '">' + escHtml(a.groupName || a.accountId) + '</option>').join('')
+      : '<option value="">No FetLife accounts — add one in Accounts</option>';
+    const grpSel = document.getElementById('tpl-group');
+    grpSel.innerHTML = '<option value="">Any group / no group restriction</option>';
+
+    if (id) {
+      const t = tplCache.find(x => x.id === id);
+      if (!t) return;
+      document.getElementById('tpl-modal-title').textContent = 'Edit Template';
+      document.getElementById('tpl-name').value = t.name;
+      document.getElementById('tpl-title').value = t.title || '';
+      document.getElementById('tpl-body').value = t.body;
+      acctSel.value = t.accountId;
+      tplPopulateGroupDropdown(t.accountId, t.groupId);
+    } else {
+      document.getElementById('tpl-modal-title').textContent = 'New Template';
+      document.getElementById('tpl-name').value = '';
+      document.getElementById('tpl-title').value = '';
+      document.getElementById('tpl-body').value = '';
+      if (flAccts.length) tplPopulateGroupDropdown(flAccts[0].accountId, null);
+    }
+    document.getElementById('tpl-modal-error').textContent = '';
+    document.getElementById('tpl-modal').classList.remove('hidden');
+
+    acctSel.onchange = () => tplPopulateGroupDropdown(acctSel.value, null);
+  }
+
+  async function tplPopulateGroupDropdown(accountId, selectedGroupId) {
+    const grpSel = document.getElementById('tpl-group');
+    if (!accountId) { grpSel.innerHTML = '<option value="">Any group / no group restriction</option>'; return; }
+    try {
+      const r = await fetch('/api/fetlife/' + encodeURIComponent(accountId) + '/groups',
+        { headers: { 'x-ui-token': token } });
+      const payload = await r.json();
+      const groups = (payload && payload.groups) || [];
+      grpSel.innerHTML = '<option value="">Any group / no group restriction</option>' +
+        groups.map(g => '<option value="' + escHtml(g.id) + '">' + escHtml(g.name) + '</option>').join('');
+      if (selectedGroupId) grpSel.value = selectedGroupId;
+    } catch {
+      grpSel.innerHTML = '<option value="">(could not load groups)</option>';
+    }
+  }
+
+  function tplCloseEditor() {
+    document.getElementById('tpl-modal').classList.add('hidden');
+    tplEditingId = null;
+  }
+
+  async function tplSaveFromEditor() {
+    const errEl = document.getElementById('tpl-modal-error');
+    errEl.textContent = '';
+    const name = document.getElementById('tpl-name').value.trim();
+    const title = document.getElementById('tpl-title').value.trim();
+    const body = document.getElementById('tpl-body').value;
+    const accountId = document.getElementById('tpl-account').value;
+    const groupId = document.getElementById('tpl-group').value || null;
+    if (!name) return errEl.textContent = 'Name is required';
+    if (!accountId) return errEl.textContent = 'Pick an account';
+    if (!body.trim()) return errEl.textContent = 'Body cannot be empty';
+    const payload = { name, title, body, accountId, groupId };
+    try {
+      if (tplEditingId) await api('PATCH', '/api/templates/' + tplEditingId, payload);
+      else await api('POST', '/api/templates', payload);
+      tplCloseEditor();
+      tplRenderList();
+      showToast('Template saved', 'success');
+    } catch (err) {
+      errEl.textContent = err.message || 'Save failed';
+    }
+  }
+
+  async function tplDelete(id) {
+    const t = tplCache.find(x => x.id === id);
+    if (!t) return;
+    if (!confirm('Delete template "' + t.name + '"?')) return;
+    await api('DELETE', '/api/templates/' + id);
+    tplRenderList();
+    showToast('Template deleted', 'success');
+  }
+
+  function tplFillSelect(selectId, applicable) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    if (!applicable.length) {
+      sel.innerHTML = '<option value="">— No templates for current selection —</option>';
+      sel.disabled = true;
+      return;
+    }
+    sel.innerHTML = '<option value="">— Load template —</option>' +
+      applicable.map(t => '<option value="' + t.id + '">' + escHtml(t.name) + '</option>').join('');
+    sel.disabled = false;
+  }
+
+  // ── Compose template integration ───────────────────────────────────────────
+  async function cpRefreshTemplateDropdowns() {
+    if (!tplCache.length) await tplLoad();
+    const selectedAcctIds = [...selectedAccounts].map(id => id.split(':').slice(1).join(':'));
+    const applicable = tplCache.filter(t => !t.groupId && selectedAcctIds.includes(t.accountId));
+    tplFillSelect('cp-tpl-load', applicable);
+    tplFillSelect('cp-tpl-load-img', applicable);
+  }
+
+  function cpLoadTemplate(id) {
+    if (!id) return;
+    const t = tplCache.find(x => x.id === id);
+    if (!t) return;
+    const target = currentPostType === 'image'
+      ? document.getElementById('image-caption')
+      : document.getElementById('compose-text');
+    if (target.value.trim() && !confirm('Overwrite current text with template "' + t.name + '"?')) return;
+    target.value = t.body;
+    updateCharCount();
+  }
+
+  function cpSaveAsTemplate() {
+    const isImage = currentPostType === 'image';
+    const body = (isImage ? document.getElementById('image-caption').value : document.getElementById('compose-text').value);
+    if (!body.trim()) { showToast('Write something first', 'error'); return; }
+    if (selectedAccounts.size === 0) { showToast('Select an account first', 'error'); return; }
+    const acctIds = [...selectedAccounts].map(id => id.split(':').slice(1).join(':'));
+    let pickedAcct = acctIds[0];
+    if (acctIds.length > 1) {
+      const labels = acctIds.map(id => tplAcctLabel(id) + ' [' + id + ']').join('\n  ');
+      const choice = prompt('Multiple accounts selected. Save under which account ID?\n\n  ' + labels + '\n\nType the account ID:', acctIds[0]);
+      if (!choice) return;
+      pickedAcct = choice;
+    }
+    tplOpenEditor(null);
+    setTimeout(() => {
+      document.getElementById('tpl-body').value = body;
+      const acctSel = document.getElementById('tpl-account');
+      if ([...acctSel.options].some(o => o.value === pickedAcct)) acctSel.value = pickedAcct;
+    }, 0);
+  }
+
+  // ── Multi-Post template integration ────────────────────────────────────────
+  async function mpRefreshTemplateDropdown() {
+    if (!tplCache.length) await tplLoad();
+    const applicable = tplCache.filter(t => !t.groupId && mpSelectedAccounts.has(t.accountId));
+    tplFillSelect('mp-tpl-load', applicable);
+  }
+
+  function mpLoadTemplate(id) {
+    if (!id) return;
+    const t = tplCache.find(x => x.id === id);
+    if (!t) return;
+    const target = mpPostType === 'image'
+      ? document.getElementById('mp-base-caption')
+      : document.getElementById('mp-base-text');
+    if (target.value.trim() && !confirm('Overwrite base post with template "' + t.name + '"?')) return;
+    target.value = t.body;
+    mpOnBaseChange();
+  }
+
+  // ── Group Cross-Post template integration ──────────────────────────────────
+  async function gpRefreshTemplateDropdown() {
+    if (!tplCache.length) await tplLoad();
+    const acct = gpEl('gp-account').value;
+    if (!acct) { tplFillSelect('gp-tpl-load', []); return; }
+    const selectedGroups = [...gpSelectedGroups];
+    const applicable = tplCache.filter(t =>
+      t.accountId === acct &&
+      (!t.groupId || selectedGroups.includes(t.groupId))
+    );
+    tplFillSelect('gp-tpl-load', applicable);
+  }
+
+  function gpLoadTemplate(id) {
+    if (!id) return;
+    const t = tplCache.find(x => x.id === id);
+    if (!t) return;
+    const titleEl = gpEl('gp-title');
+    const bodyEl = gpEl('gp-body');
+    const willOverwrite = (titleEl.value.trim() && t.title) || bodyEl.value.trim();
+    if (willOverwrite && !confirm('Overwrite current title/body with template "' + t.name + '"?')) return;
+    if (t.title) titleEl.value = t.title;
+    bodyEl.value = t.body;
+  }
+
+  function gpSaveAsTemplate() {
+    const acct = gpEl('gp-account').value;
+    const title = gpEl('gp-title').value.trim();
+    const body = gpEl('gp-body').value;
+    if (!acct) { gpFlash('gp-error', 'Pick an account first', true); return; }
+    if (!body.trim()) { gpFlash('gp-error', 'Body is empty — nothing to save', true); return; }
+
+    let groupId = null;
+    if (gpSelectedGroups.size === 1) {
+      const onlyGroup = [...gpSelectedGroups][0];
+      const g = (gpGroups || []).find(x => x.id === onlyGroup);
+      const label = g ? g.name : ('group ' + onlyGroup);
+      if (confirm('Pin this template to the selected group "' + label + '"?\n\n[OK] = pin to group   [Cancel] = save under account only')) {
+        groupId = onlyGroup;
+      }
+    } else if (gpSelectedGroups.size > 1) {
+      const groupOpts = [...gpSelectedGroups].map(gid => {
+        const g = (gpGroups || []).find(x => x.id === gid);
+        return (g ? g.name : ('group ' + gid)) + ' [' + gid + ']';
+      }).join('\n  ');
+      const choice = prompt('Multiple groups selected. Pin to which group? (leave blank to save under account only)\n\n  ' + groupOpts, '');
+      if (choice && choice.trim()) groupId = choice.trim();
+    }
+
+    tplOpenEditor(null);
+    setTimeout(() => {
+      document.getElementById('tpl-name').value = title.slice(0, 60) || '';
+      document.getElementById('tpl-title').value = title;
+      document.getElementById('tpl-body').value = body;
+      const acctSel = document.getElementById('tpl-account');
+      if ([...acctSel.options].some(o => o.value === acct)) acctSel.value = acct;
+      if (groupId) tplPopulateGroupDropdown(acct, groupId);
+    }, 0);
+  }
+</script>
+</body>
+</html>
