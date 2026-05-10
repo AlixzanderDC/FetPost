@@ -120,53 +120,48 @@ export async function scrapeEventMetrics(accountId, eventUrl) {
       throw new Error(`Not logged in for ${accountId} — refresh cookies`);
     }
 
+    // Dump the full page text to a debug file so we can tune selectors offline.
+    try {
+      const debugDir = path.join(__dirname, '..', 'data', 'metrics', 'debug');
+      await fs.mkdir(debugDir, { recursive: true });
+      const debugFile = path.join(debugDir, safeKey(eventUrl) + '.txt');
+      const text = await page.evaluate(() => document.body.innerText || '');
+      await fs.writeFile(debugFile, text, 'utf8');
+    } catch {}
+
     return await page.evaluate(() => {
       const fullText = document.body.innerText || '';
-      const matchN = (rx) => {
+
+      // FetLife uses parenthesized section headers: "Going (21)" / "Interested In (78)".
+      // Match exactly that pattern for each label.
+      const findParenCount = (label) => {
+        const rx = new RegExp('\\b' + label.replace(/\s+/g, '\\s+') + '\\s*\\((\\d[\\d,]*)\\)', 'i');
         const m = fullText.match(rx);
-        return m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
+        return m ? parseInt(m[1].replace(/,/g, ''), 10) : 0;
       };
 
-      // FetLife's actual format on event pages — try several variations.
-      const findCount = (labels) => {
-        for (const label of labels) {
-          // "Going (42)" / "Going(42)"
-          let m = fullText.match(new RegExp('\\b' + label + '\\s*\\((\\d[\\d,]*)\\)', 'i'));
-          if (m) return parseInt(m[1].replace(/,/g, ''), 10);
-          // "42 Going" — count first
-          m = fullText.match(new RegExp('(\\d[\\d,]*)\\s+' + label + '\\b', 'i'));
-          if (m) return parseInt(m[1].replace(/,/g, ''), 10);
-          // "Going\n42" / "Going  42"
-          m = fullText.match(new RegExp('\\b' + label + '\\s*\\n?\\s*(\\d[\\d,]*)\\b', 'i'));
-          if (m) return parseInt(m[1].replace(/,/g, ''), 10);
-        }
-        return 0;
-      };
-
-      // Aria/data-testid pass — search anchors with attendance-related testids.
-      const fromTestid = (substr) => {
-        const els = document.querySelectorAll('[data-testid]');
-        for (const el of els) {
-          const t = (el.getAttribute('data-testid') || '').toLowerCase();
-          if (t.includes(substr)) {
-            const m = (el.textContent || '').match(/(\d[\d,]*)/);
-            if (m) return parseInt(m[1].replace(/,/g, ''), 10);
-          }
-        }
+      // Total RSVPs appears two ways on the page:
+      //   1) Header strip: "RSVPs\n99" near the top
+      //   2) Footer line: "99 kinksters RSVPed"
+      const findTotal = () => {
+        let m = fullText.match(/\bRSVPs\s*\n\s*(\d[\d,]*)\b/);
+        if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+        m = fullText.match(/(\d[\d,]*)\s+kinksters?\s+RSVPed/i);
+        if (m) return parseInt(m[1].replace(/,/g, ''), 10);
         return null;
       };
 
       const title = document.querySelector('h1')?.textContent?.trim() || null;
-      const going = fromTestid('going') ?? findCount(['going', 'attending']);
-      const maybe = fromTestid('maybe') ?? findCount(['maybe', 'might']);
-      const curious = fromTestid('curious') ?? fromTestid('interested') ?? findCount(['curious', 'interested']);
+      const going = findParenCount('Going');
+      // "Interested In" is FetLife's label for what other platforms call "Curious/Maybe".
+      const curious = findParenCount('Interested In') || findParenCount('Curious') || findParenCount('Interested');
+      const maybe = findParenCount('Maybe'); // typically absent on FetLife — defaults to 0.
+      const total = findTotal() ?? (going + curious + maybe);
 
       return {
         title,
-        going, maybe, curious,
+        going, maybe, curious, total,
         url: window.location.href,
-        // Debug payload so we can see what the page actually contained when counts come back 0.
-        _debugTextSample: fullText.slice(0, 1500),
       };
     });
   } finally {

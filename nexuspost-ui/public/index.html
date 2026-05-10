@@ -1619,7 +1619,8 @@
         const snaps = data.snapshots || [];
         if (!snaps.length) { span.textContent = 'no data yet'; continue; }
         const latest = snaps[snaps.length - 1];
-        span.innerHTML = '<b>' + (latest.going ?? 0) + '</b> going · ' + (latest.maybe ?? 0) + ' maybe · ' + (latest.curious ?? 0) + ' curious';
+        const total = latest.total ?? ((latest.going ?? 0) + (latest.maybe ?? 0) + (latest.curious ?? 0));
+        span.innerHTML = '<b>' + total + '</b> total · ' + (latest.going ?? 0) + ' going · ' + (latest.curious ?? 0) + ' interested';
       } catch { span.textContent = '—'; }
     }
   }
@@ -1632,7 +1633,9 @@
   function renderMetricSnapshot(snap) {
     if (!snap) return '<span style="color:var(--text2)">No data yet.</span>';
     const ts = new Date(snap.t).toLocaleString();
-    return '<div><b>Going:</b> ' + (snap.going ?? 0) + ' &middot; <b>Maybe:</b> ' + (snap.maybe ?? 0) + ' &middot; <b>Curious:</b> ' + (snap.curious ?? 0) + '</div>' +
+    const total = snap.total ?? ((snap.going ?? 0) + (snap.maybe ?? 0) + (snap.curious ?? 0));
+    return '<div><b>Total RSVPs:</b> ' + total + '</div>' +
+      '<div style="margin-top:2px"><b>Going:</b> ' + (snap.going ?? 0) + ' &middot; <b>Interested:</b> ' + (snap.curious ?? 0) + (snap.maybe ? ' &middot; <b>Maybe:</b> ' + snap.maybe : '') + '</div>' +
       '<div style="font-size:11px;color:var(--text2);margin-top:2px">last fetched ' + ts + '</div>';
   }
 
