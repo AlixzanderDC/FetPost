@@ -225,8 +225,12 @@ async function extractWithHeadedBrowser(accountId, username, password) {
 
 // ── Main: extract cookies for all FetLife accounts ────────────────────────────
 
-export async function extractAllCookies() {
-  const accounts = await listAccounts();
+export async function extractAllCookies({ accountId = null } = {}) {
+  const allAccounts = await listAccounts();
+  const accounts = accountId ? allAccounts.filter(a => a.accountId === accountId) : allAccounts;
+  if (accountId && accounts.length === 0) {
+    return [{ success: false, accountId, error: `Account "${accountId}" not found` }];
+  }
   const results = [];
 
   for (const account of accounts) {

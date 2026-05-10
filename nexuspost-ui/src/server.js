@@ -116,14 +116,16 @@ app.post('/api/accounts/:platform/:accountId/test', requireAuth, async (req, res
 });
 
 app.post('/api/accounts/:platform/:accountId/extract-cookies', requireAuth, async (req, res) => {
-  const { platform } = req.params;
+  const { platform, accountId } = req.params;
   const scriptPath = COOKIE_SCRIPTS[platform];
   if (!scriptPath) return res.status(400).json({ error: 'No cookie script for ' + platform });
-  res.json({ success: true, message: 'Cookie extraction started' });
+  res.json({ success: true, message: 'Cookie extraction started for ' + accountId });
   setTimeout(() => {
-    execAsync(scriptPath)
-      .then(() => console.log('[ui] Cookie extraction completed for ' + platform))
-      .catch(err => console.error('[ui] Cookie extraction failed for ' + platform + ':', err.message));
+    // Quote the accountId since it can contain spaces (e.g., "Crucible Rendezvous").
+    const cmd = `"${scriptPath}" "${accountId.replace(/"/g, '\\"')}"`;
+    execAsync(cmd)
+      .then(() => console.log(`[ui] Cookie extraction completed for ${platform}/${accountId}`))
+      .catch(err => console.error(`[ui] Cookie extraction failed for ${platform}/${accountId}:`, err.message));
   }, 3000);
 });
 
@@ -187,6 +189,47 @@ app.post('/api/canva/disconnect', requireAuth, async (req, res) => {
 app.get('/api/canva/designs', requireAuth, async (req, res) => {
   try {
     const result = await canva.listDesigns({ continuation: req.query.continuation });
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Engagement metrics proxy ────────────────────────────────────────────────
+
+app.post('/api/fetlife/metrics/post/refresh', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'POST', '/metrics/post/refresh', req.body);
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/fetlife/metrics/post/:postId', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/metrics/post/' + encodeURIComponent(req.params.postId));
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/fetlife/metrics/event/refresh', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'POST', '/metrics/event/refresh', req.body);
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/fetlife/metrics/event/:eventId', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/metrics/event/' + encodeURIComponent(req.params.eventId));
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/canva/folder-items', requireAuth, async (req, res) => {
+  const folderId = req.query.folderId || 'root';
+  try {
+    const result = await canva.listFolderItems(folderId, {
+      continuation: req.query.continuation,
+      itemTypes: req.query.itemTypes,
+    });
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -305,6 +348,14 @@ app.delete('/api/posts/:platform/:postId', requireAuth, async (req, res) => {
   const { platform, postId } = req.params;
   try {
     const result = await proxyRequest(platform, 'DELETE', '/posts/' + postId);
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/posts/:platform/:postId/retry', requireAuth, async (req, res) => {
+  const { platform, postId } = req.params;
+  try {
+    const result = await proxyRequest(platform, 'POST', '/posts/' + encodeURIComponent(postId) + '/retry');
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

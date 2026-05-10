@@ -42,10 +42,16 @@ Register-ScheduledTask -TaskName "${taskName}" -Action $action -Trigger $trigger
 }
 
 async function main() {
+  // Filter to a single account if specified — first via CLI arg, else via env var.
+  const onlyAccount = process.argv[2] || process.env.FL_ONLY_ACCOUNT;
   console.log('[setup] === NexusPost FetLife Cookie Setup ===');
-  console.log('[setup] Step 1: Extracting cookies for all accounts...\n');
+  if (onlyAccount) {
+    console.log(`[setup] Targeting single account: ${onlyAccount}\n`);
+  } else {
+    console.log('[setup] Step 1: Extracting cookies for all accounts...\n');
+  }
 
-  const results = await extractAllCookies();
+  const results = await extractAllCookies({ accountId: onlyAccount || null });
 
   const succeeded = results.filter(r => r.success);
   const failed = results.filter(r => !r.success);

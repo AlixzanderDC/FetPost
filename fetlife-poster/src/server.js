@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { schedulePost, scheduleGroupEventBatch, cancelPost, getQueue, clearJobsByStatus } from './scheduler.js';
+import { schedulePost, scheduleGroupEventBatch, cancelPost, getQueue, clearJobsByStatus, retryJob } from './scheduler.js';
 import { storeCredentials, listAccounts, removeAccount, testLogin } from './credentials.js';
 import { getPostHistory } from './history.js';
 import {
@@ -12,6 +12,10 @@ import {
   refreshEventsForAccount, readCachedEvents,
   getEventDetails,
 } from './discovery.js';
+import {
+  refreshPostMetrics, readPostMetrics,
+  refreshEventMetrics, readEventMetrics,
+} from './metrics.js';
 
 const app = express();
 const PORT = 3747;
@@ -144,6 +148,16 @@ app.delete('/posts/:postId', auth, async (req, res) => {
   }
 });
 
+// Retry a failed post — flips status back to 'scheduled' and re-arms a timer.
+app.post('/posts/:postId/retry', auth, async (req, res) => {
+  try {
+    const job = await retryJob(req.params.postId);
+    res.json({ success: true, post: job });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Bulk clear jobs by status (e.g., clear all failed posts)
 app.post('/posts/clear-by-status', auth, async (req, res) => {
   const { status } = req.body || {};
@@ -217,6 +231,36 @@ app.get('/accounts/:accountId/events/details', auth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Engagement metrics (on-demand scrape + read snapshots) ──────────────────
+
+app.post('/metrics/post/refresh', auth, async (req, res) => {
+  const { accountId, postId, postUrl } = req.body || {};
+  if (!accountId || !postId || !postUrl) return res.status(400).json({ error: 'accountId, postId, postUrl required' });
+  try {
+    const snapshot = await refreshPostMetrics(accountId, postId, postUrl);
+    res.json({ success: true, snapshot });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/metrics/post/:postId', auth, async (req, res) => {
+  try { res.json({ snapshots: await readPostMetrics(req.params.postId) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/metrics/event/refresh', auth, async (req, res) => {
+  const { accountId, eventId, eventUrl } = req.body || {};
+  if (!accountId || !eventId || !eventUrl) return res.status(400).json({ error: 'accountId, eventId, eventUrl required' });
+  try {
+    const snapshot = await refreshEventMetrics(accountId, eventId, eventUrl);
+    res.json({ success: true, snapshot });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/metrics/event/:eventId', auth, async (req, res) => {
+  try { res.json({ snapshots: await readEventMetrics(req.params.eventId) }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Health check — no auth needed

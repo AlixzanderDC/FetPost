@@ -91,6 +91,20 @@ export async function cancelPost(postId) {
   await saveQueue(queue);
 }
 
+export async function retryJob(postId) {
+  const queue = await loadQueue();
+  const job = queue[postId];
+  if (!job) throw new Error(`Post ${postId} not found`);
+  if (job.status !== 'failed') throw new Error(`Cannot retry post in status "${job.status}" — only failed posts can be retried`);
+  job.status = 'scheduled';
+  job.scheduledAt = new Date(Date.now() + 5000).toISOString(); // fire ~5s from now
+  job.error = null;
+  job.updatedAt = new Date().toISOString();
+  await saveQueue(queue);
+  armTimer(job);
+  return job;
+}
+
 export async function clearJobsByStatus(status) {
   const queue = await loadQueue();
   let removed = 0;
@@ -164,6 +178,18 @@ console.log(`[scheduler] Images: ${job.images ? job.images.length : 0}, postType
   }
 }
 
+function isConnectivityError(errMsg) {
+  if (!errMsg) return false;
+  const patterns = [
+    /cookie/i, /not logged in/i, /timeout/i, /timed out/i, /network/i,
+    /cloudflare/i, /challenge/i, /unauthorized/i, /\b401\b/,
+    /ECONN/i, /ETIMEDOUT/i, /ENETDOWN/i, /ENOTFOUND/i, /EAI_AGAIN/i,
+    /net::/i, /protocol error/i,
+    /service restarted while job was executing/i,
+  ];
+  return patterns.some(rx => rx.test(errMsg));
+}
+
 export async function restoreScheduledJobs() {
   const queue = await loadQueue();
   let restored = 0;
@@ -180,9 +206,32 @@ export async function restoreScheduledJobs() {
     }
   }
   if (orphaned > 0) {
-    await saveQueue(queue);
     console.log(`[scheduler] Marked ${orphaned} orphaned running job(s) as failed`);
   }
+
+  // Auto-retry: any failed post whose error looks connectivity-related AND whose original
+  // scheduled time was less than 3 days ago — flip back to scheduled, staggered 30–60s apart
+  // so we don't spike FetLife on startup.
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+  const failedRecent = Object.values(queue)
+    .filter(j => j.status === 'failed' && isConnectivityError(j.error))
+    .filter(j => Date.now() - new Date(j.scheduledAt).getTime() < THREE_DAYS_MS)
+    .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+  let cursor = Date.now() + 10_000;
+  let autoRetried = 0;
+  for (const j of failedRecent) {
+    queue[j.postId].status = 'scheduled';
+    queue[j.postId].scheduledAt = new Date(cursor).toISOString();
+    queue[j.postId].error = null;
+    queue[j.postId].autoRetriedAt = new Date().toISOString();
+    cursor += 30_000 + Math.floor(Math.random() * 30_000);
+    autoRetried++;
+  }
+  if (autoRetried > 0) {
+    console.log(`[scheduler] Auto-retrying ${autoRetried} connectivity-failed post(s) from the last 3 days`);
+  }
+  if (orphaned > 0 || autoRetried > 0) await saveQueue(queue);
+
   for (const job of Object.values(queue)) {
     if (job.status === 'scheduled') { armTimer(job); restored++; }
   }

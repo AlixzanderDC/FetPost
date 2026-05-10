@@ -604,6 +604,23 @@
   let currentPostType = 'text';
   let currentQueueTab = 'scheduled';
   let allPosts = [];
+  let allOrganizedEvents = []; // FetLife events organized by user's accounts (auto-populated)
+  let accountColorMap = {};
+  const ACCOUNT_PALETTE = [
+    { color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+    { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+    { color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    { color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
+    { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+  ];
+  function colorForAccount(accountId) {
+    if (!accountColorMap[accountId]) {
+      const i = Object.keys(accountColorMap).length % ACCOUNT_PALETTE.length;
+      accountColorMap[accountId] = ACCOUNT_PALETTE[i];
+    }
+    return accountColorMap[accountId];
+  }
   let testResults = {};
   let mpSelectedAccounts = new Set();
   let mpCustomText = {};
@@ -668,7 +685,20 @@
     if (name === 'dashboard') loadDashboard();
   }
 
-  async function loadAll() { await loadAccounts(); loadDashboard(); canvaRefreshStatus(); }
+  async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); loadDashboard(); canvaRefreshStatus(); }
+
+  async function loadAllOrganizedEvents() {
+    allOrganizedEvents = [];
+    const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    for (const a of fetlifeAccounts) {
+      try {
+        const data = await api('GET', '/api/fetlife/' + encodeURIComponent(a.accountId) + '/events');
+        const events = (data.events || []).map(e => Object.assign({}, e, { accountId: a.accountId, groupName: a.groupName || a.accountId }));
+        allOrganizedEvents.push(...events);
+      } catch { /* ignore per-account failures */ }
+    }
+    if (typeof calRender === 'function') calRender();
+  }
 
   async function loadAccounts() {
     const data = await api('GET', '/api/accounts');
@@ -796,6 +826,7 @@
     const time = post.scheduledAt ? new Date(post.scheduledAt).toLocaleString() : '';
     const sentTime = post.sentAt ? new Date(post.sentAt).toLocaleString() : '';
     const cancelBtn = post.status === 'scheduled' ? '<button class="post-btn danger" onclick="cancelPost(\'' + post.platform + '\',\'' + post.postId + '\')">Cancel</button>' : '';
+    const retryBtn = post.status === 'failed' ? '<button class="post-btn" onclick="retryPost(\'' + post.platform + '\',\'' + post.postId + '\')">Retry</button>' : '';
     const imageHtml = (Array.isArray(post.images) && post.images.length)
       ? '<div class="post-images" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;align-items:center;">' + post.images.slice(0, 1).map(img => {
           if (!img) return '';
@@ -804,13 +835,26 @@
           return '';
         }).join('') + (post.images.length > 1 ? '<span style="font-size:11px;color:var(--text2)">+' + (post.images.length - 1) + ' more</span>' : '') + '</div>'
       : '';
-    return '<div class="post-card"><div class="post-header"><span class="platform-badge ' + cfg.badgeClass + '">' + platformIcon(cfg) + ' ' + cfg.label + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-left:4px">' + escHtml(post.accountId) + '</span><span class="status-badge status-' + post.status + '" style="margin-left:auto">' + post.status + '</span></div><div class="post-body">' + escHtml(post.content || '') + '</div>' + imageHtml + '<div class="post-time">' + (post.status === 'sent' ? 'Sent ' + sentTime : 'Scheduled ' + time) + '</div><div class="post-actions">' + cancelBtn + '</div></div>';
+    return '<div class="post-card"><div class="post-header"><span class="platform-badge ' + cfg.badgeClass + '">' + platformIcon(cfg) + ' ' + cfg.label + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-left:4px">' + escHtml(post.accountId) + '</span><span class="status-badge status-' + post.status + '" style="margin-left:auto">' + post.status + '</span></div><div class="post-body">' + escHtml(post.content || '') + '</div>' + imageHtml + '<div class="post-time">' + (post.status === 'sent' ? 'Sent ' + sentTime : 'Scheduled ' + time) + '</div><div class="post-actions">' + retryBtn + cancelBtn + '</div></div>';
   }
 
   async function cancelPost(platform, postId) {
     const data = await api('DELETE', '/api/posts/' + platform + '/' + encodeURIComponent(postId));
     if (data.success) { showToast('Post cancelled', 'success'); loadQueue(); loadDashboard(); }
     else showToast(data.error || 'Failed', 'error');
+  }
+
+  async function retryPost(platform, postId) {
+    if (!confirm('Retry this post? It will fire within ~5 seconds.')) return;
+    try {
+      const data = await api('POST', '/api/posts/' + platform + '/' + encodeURIComponent(postId) + '/retry');
+      if (data.success) {
+        showToast('Post re-armed — firing shortly', 'success');
+        setTimeout(() => { loadQueue(); loadDashboard(); }, 6000);
+      } else {
+        showToast(data.error || 'Retry failed', 'error');
+      }
+    } catch (err) { showToast('Retry failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
   async function loadHistory() {
@@ -960,7 +1004,7 @@
   }
 
   // ── Canva integration ─────────────────────────────────────────────────────
-  let canvaState = { configured: false, connected: false, designs: [], continuation: null, target: null };
+  let canvaState = { configured: false, connected: false, items: [], continuation: null, target: null, path: [] };
 
   async function canvaRefreshStatus() {
     try {
@@ -1007,45 +1051,75 @@
 
   async function canvaOpenPicker(target) {
     canvaState.target = target || 'compose';
-    canvaState.designs = [];
+    canvaState.path = [{ id: 'root', name: 'Projects' }];
+    canvaState.items = [];
     canvaState.continuation = null;
     document.getElementById('canva-picker-grid').innerHTML = '';
-    document.getElementById('canva-picker-status').textContent = 'Loading designs from Canva…';
+    document.getElementById('canva-picker-status').textContent = 'Loading from Canva…';
     document.getElementById('canva-load-more').style.display = 'none';
     document.getElementById('canva-picker-modal').classList.remove('hidden');
-    await canvaLoadDesigns();
+    await canvaLoadFolder(false);
   }
 
   function canvaClosePicker() { document.getElementById('canva-picker-modal').classList.add('hidden'); }
 
-  async function canvaLoadDesigns() {
+  async function canvaLoadFolder(isLoadMore) {
+    if (!isLoadMore) { canvaState.items = []; canvaState.continuation = null; }
+    const folder = canvaState.path[canvaState.path.length - 1];
     try {
-      const params = canvaState.continuation ? '?continuation=' + encodeURIComponent(canvaState.continuation) : '';
-      const data = await api('GET', '/api/canva/designs' + params);
-      const items = data.items || data.designs || [];
-      canvaState.designs = canvaState.designs.concat(items);
+      const params = new URLSearchParams();
+      params.set('folderId', folder.id);
+      if (isLoadMore && canvaState.continuation) params.set('continuation', canvaState.continuation);
+      const data = await api('GET', '/api/canva/folder-items?' + params.toString());
+      const items = data.items || [];
+      canvaState.items = canvaState.items.concat(items);
       canvaState.continuation = data.continuation || null;
       canvaRenderPicker();
     } catch (err) {
-      document.getElementById('canva-picker-status').textContent = 'Failed to load designs: ' + (err.message || 'unknown');
+      document.getElementById('canva-picker-status').textContent = 'Failed to load: ' + (err.message || 'unknown') + (err.message && err.message.includes('folder:read') ? ' — disconnect and reconnect Canva to grant the folder permission.' : '');
     }
   }
 
-  function canvaLoadMore() { canvaLoadDesigns(); }
+  function canvaLoadMore() { canvaLoadFolder(true); }
 
-  function canvaRenderPicker() {
-    const grid = document.getElementById('canva-picker-grid');
-    const status = document.getElementById('canva-picker-status');
-    if (canvaState.designs.length === 0) {
-      grid.innerHTML = '';
-      status.textContent = 'No designs found in your Canva account.';
-      return;
+  function canvaNavigateInto(folderId, folderName) {
+    canvaState.path.push({ id: folderId, name: folderName });
+    canvaLoadFolder(false);
+  }
+
+  function canvaNavigateTo(index) {
+    canvaState.path = canvaState.path.slice(0, index + 1);
+    canvaLoadFolder(false);
+  }
+
+  function canvaRenderBreadcrumbs() {
+    return canvaState.path.map((seg, i) => {
+      const isLast = i === canvaState.path.length - 1;
+      return isLast
+        ? '<span style="color:var(--text0);font-weight:600">' + escHtml(seg.name) + '</span>'
+        : '<a style="color:var(--accent);cursor:pointer" onclick="canvaNavigateTo(' + i + ')">' + escHtml(seg.name) + '</a>';
+    }).join(' <span style="color:var(--text2)">›</span> ');
+  }
+
+  function canvaItemTile(item) {
+    if (item.type === 'folder') {
+      const f = item.folder || {};
+      const id = f.id || item.id;
+      const name = f.name || 'Folder';
+      const thumb = f.thumbnail?.url;
+      const thumbHtml = thumb
+        ? '<img loading="lazy" src="' + thumb + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;border:1px solid var(--border);opacity:0.85">'
+        : '<div style="width:100%;aspect-ratio:1;background:var(--bg2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:32px">📁</div>';
+      return '<div class="canva-thumb" style="cursor:pointer;display:flex;flex-direction:column;gap:4px" onclick="canvaNavigateInto(\'' + escAttr(id) + '\',\'' + escAttr(name) + '\')">' +
+        thumbHtml +
+        '<div style="font-size:11px;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">📁 ' + escHtml(name) + '</div>' +
+      '</div>';
     }
-    status.textContent = canvaState.designs.length + ' design(s) loaded';
-    grid.innerHTML = canvaState.designs.map(d => {
-      const id = d.id || d.design_id;
-      const title = d.title || d.name || 'Untitled';
-      const thumb = (d.thumbnail && (d.thumbnail.url || d.thumbnail.urls?.[0])) || (d.urls && d.urls.thumbnail) || null;
+    if (item.type === 'design') {
+      const d = item.design || {};
+      const id = d.id || item.id;
+      const title = d.title || 'Untitled';
+      const thumb = (d.thumbnail && d.thumbnail.url) || null;
       const thumbHtml = thumb
         ? '<img loading="lazy" src="' + thumb + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;border:1px solid var(--border)">'
         : '<div style="width:100%;aspect-ratio:1;background:var(--bg2);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:24px">🎨</div>';
@@ -1053,7 +1127,29 @@
         thumbHtml +
         '<div style="font-size:11px;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(title) + '</div>' +
       '</div>';
-    }).join('');
+    }
+    // images and other types: show a thumbnail but don't allow click-to-import yet
+    if (item.type === 'image') {
+      const img = item.image || {};
+      const thumb = img.thumbnail?.url;
+      const thumbHtml = thumb
+        ? '<img loading="lazy" src="' + thumb + '" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;border:1px solid var(--border);opacity:0.5">'
+        : '';
+      return '<div style="opacity:0.5;display:flex;flex-direction:column;gap:4px" title="Direct image import not supported yet — open in Canva and Save as design">' +
+        thumbHtml + '<div style="font-size:11px;color:var(--text2)">image (use a design)</div></div>';
+    }
+    return '';
+  }
+
+  function canvaRenderPicker() {
+    const grid = document.getElementById('canva-picker-grid');
+    const status = document.getElementById('canva-picker-status');
+    status.innerHTML = canvaRenderBreadcrumbs();
+    if (canvaState.items.length === 0) {
+      grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text2);padding:30px">This folder is empty.</div>';
+    } else {
+      grid.innerHTML = canvaState.items.map(canvaItemTile).join('');
+    }
     document.getElementById('canva-load-more').style.display = canvaState.continuation ? 'inline-block' : 'none';
   }
 
@@ -1322,14 +1418,27 @@
       if (orgFilter && (p.groupName || p.accountId) !== orgFilter) return false;
       return true;
     });
+    const filteredEvents = (allOrganizedEvents || []).filter(e => {
+      if (orgFilter && (e.groupName || e.accountId) !== orgFilter) return false;
+      return true;
+    });
 
-    // Bucket by local-date key.
+    // Bucket by local-date key. Events first (anchor for the day), posts second sorted by time.
     const byDay = {};
+    filteredEvents.forEach(e => {
+      const key = e.urlDate || (e.dateText ? null : null);
+      if (!key) return;
+      (byDay[key] = byDay[key] || []).push({ kind: 'event', data: e });
+    });
     filtered.forEach(p => {
       const key = calDayKey(new Date(p.scheduledAt));
-      (byDay[key] = byDay[key] || []).push(p);
+      (byDay[key] = byDay[key] || []).push({ kind: 'post', data: p });
     });
-    Object.values(byDay).forEach(arr => arr.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)));
+    Object.values(byDay).forEach(arr => arr.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'event' ? -1 : 1; // events first
+      if (a.kind === 'post') return new Date(a.data.scheduledAt) - new Date(b.data.scheduledAt);
+      return (a.data.title || '').localeCompare(b.data.title || '');
+    }));
 
     // Build 6-week grid starting from the Sunday before the 1st of month.
     const startDay = new Date(calCurrentMonth);
@@ -1350,9 +1459,9 @@
     document.getElementById('cal-grid').innerHTML = dowHeader + cells.join('');
   }
 
-  function calRenderCell(d, posts, otherMonth, isToday) {
-    const visible = posts.slice(0, 4);
-    const overflow = posts.length - visible.length;
+  function calRenderCell(d, items, otherMonth, isToday) {
+    const visible = items.slice(0, 4);
+    const overflow = items.length - visible.length;
     const chips = visible.map(calRenderChip).join('');
     const more = overflow > 0
       ? '<div class="cal-more" onclick="calOpenDay(\'' + calDayKey(d) + '\')">+' + overflow + ' more</div>'
@@ -1363,7 +1472,18 @@
     '</div>';
   }
 
-  function calRenderChip(post) {
+  function calRenderChip(item) {
+    if (item.kind === 'event') {
+      const e = item.data;
+      const c = colorForAccount(e.accountId);
+      const label = (e.title || '').slice(0, 28);
+      return '<div class="cal-chip" style="border-left-color:' + c.color + ';background:' + c.bg + '"' +
+        ' onclick="calOpenEvent(\'' + escAttr(e.url) + '\')" title="' + escAttr((e.title || '') + '\nFrom: ' + (e.groupName || e.accountId)) + '">' +
+        '<span class="cal-chip-time">📅</span>' +
+        '<span class="cal-chip-label">' + escHtml(label) + '</span>' +
+      '</div>';
+    }
+    const post = item.data;
     const cfg = PLATFORMS[post.platform] || PLATFORMS.fetlife;
     const time = new Date(post.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const label = (post.groupName || post.accountId || '').slice(0, 24);
@@ -1418,6 +1538,11 @@
             return '';
           }).join('') + '</div>'
       : '';
+    const metricsBlock = post.eventUrl
+      ? '<div class="compose-label" style="font-size:11px;margin-top:14px">Event RSVPs</div>' +
+        '<div id="cal-metrics-display" style="font-size:12px;color:var(--text2);margin-bottom:6px">Click below to fetch latest counts.</div>' +
+        '<button class="btn btn-sm" id="cal-metrics-btn" onclick="calRefreshEventMetrics(\'' + escAttr(post.accountId) + '\',\'' + escAttr(post.eventUrl) + '\')">Refresh RSVPs</button>'
+      : '';
     document.getElementById('cal-side-body').innerHTML =
       '<h3>' + platformIcon(cfg, 'platform-icon-lg') + ' ' + escHtml(cfg.label) + ' post</h3>' +
       '<dl>' +
@@ -1431,14 +1556,123 @@
       '<div class="compose-label" style="font-size:11px;margin-top:0">Content</div>' +
       '<div class="post-body-preview">' + escHtml(bodyText) + '</div>' +
       imagesHtml +
+      metricsBlock +
       '<div style="margin-top:14px;display:flex;gap:8px">' +
         '<button class="btn btn-danger" onclick="calCancelPost(\'' + escAttr(platform) + '\',\'' + escAttr(postId) + '\')">Cancel post</button>' +
         '<button class="btn" onclick="calClosePanel()">Close</button>' +
       '</div>';
+    if (post.eventUrl) calLoadCachedEventMetrics(post.eventUrl);
     document.getElementById('cal-side').classList.add('open');
   };
 
   window.calClosePanel = function () { document.getElementById('cal-side').classList.remove('open'); };
+
+  window.calOpenEvent = async function (eventUrl) {
+    const event = (allOrganizedEvents || []).find(e => e.url === eventUrl);
+    if (!event) return;
+    const c = colorForAccount(event.accountId);
+    const peers = (allOrganizedEvents || [])
+      .filter(e => e.accountId === event.accountId && e.url !== event.url)
+      .sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+
+    document.getElementById('cal-side-body').innerHTML =
+      '<h3>📅 ' + escHtml(event.title || 'Untitled event') + '</h3>' +
+      '<div style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + c.bg + ';color:' + c.color + ';font-size:11px;font-weight:600;margin-bottom:10px">' + escHtml(event.groupName || event.accountId) + '</div>' +
+      '<dl>' +
+        '<dt>Date</dt><dd>' + escHtml(event.dateText || event.urlDate || '') + '</dd>' +
+        (event.location ? '<dt>Location</dt><dd>' + escHtml(event.location) + '</dd>' : '') +
+        (event.category ? '<dt>Category</dt><dd>' + escHtml(event.category) + '</dd>' : '') +
+        '<dt>Event URL</dt><dd><a href="' + escAttr(event.url) + '" target="_blank" style="color:var(--accent);word-break:break-all">' + escHtml(event.url) + '</a></dd>' +
+      '</dl>' +
+      '<div class="compose-label" style="font-size:11px;margin-top:14px">RSVP Health</div>' +
+      '<div id="cal-metrics-display" style="font-size:12px;color:var(--text2);margin-bottom:6px">Click below to fetch latest counts.</div>' +
+      '<button class="btn btn-sm" id="cal-metrics-btn" onclick="calRefreshEventMetrics(\'' + escAttr(event.accountId) + '\',\'' + escAttr(event.url) + '\')">Refresh RSVPs</button>' +
+      (peers.length > 0
+        ? '<div class="compose-label" style="font-size:11px;margin-top:18px">Other events from ' + escHtml(event.groupName || event.accountId) + '</div>' +
+          '<div id="cal-peer-events" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto">' +
+            peers.map(p => {
+              const pid = eventIdFromUrl(p.url);
+              return '<div class="peer-event" data-peerid="' + escAttr(pid) + '" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;cursor:pointer" onclick="calOpenEvent(\'' + escAttr(p.url) + '\')">' +
+                '<div style="font-size:12px;color:var(--text0);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(p.title || 'Untitled') + '</div>' +
+                '<div style="font-size:10px;color:var(--text2);margin-top:2px">' + escHtml(p.dateText || p.urlDate || '') + '</div>' +
+                '<div class="peer-rsvp" style="font-size:11px;color:var(--text2);margin-top:4px">RSVPs: <span class="peer-rsvp-data">loading...</span></div>' +
+              '</div>';
+            }).join('') +
+          '</div>'
+        : '') +
+      '<div style="margin-top:14px;display:flex;gap:8px">' +
+        '<button class="btn" onclick="calClosePanel()">Close</button>' +
+      '</div>';
+    document.getElementById('cal-side').classList.add('open');
+    calLoadCachedEventMetrics(event.url);
+    if (peers.length) calLoadPeerRsvps();
+  };
+
+  async function calLoadPeerRsvps() {
+    const els = document.querySelectorAll('#cal-peer-events .peer-event');
+    for (const el of els) {
+      const id = el.getAttribute('data-peerid');
+      const span = el.querySelector('.peer-rsvp-data');
+      if (!span) continue;
+      try {
+        const data = await api('GET', '/api/fetlife/metrics/event/' + encodeURIComponent(id));
+        const snaps = data.snapshots || [];
+        if (!snaps.length) { span.textContent = 'no data yet'; continue; }
+        const latest = snaps[snaps.length - 1];
+        span.innerHTML = '<b>' + (latest.going ?? 0) + '</b> going · ' + (latest.maybe ?? 0) + ' maybe · ' + (latest.curious ?? 0) + ' curious';
+      } catch { span.textContent = '—'; }
+    }
+  }
+
+  function eventIdFromUrl(eventUrl) {
+    // Use the URL itself as the storage key, normalized.
+    return (eventUrl || '').replace(/[^a-z0-9_-]/gi, '_').slice(0, 200);
+  }
+
+  function renderMetricSnapshot(snap) {
+    if (!snap) return '<span style="color:var(--text2)">No data yet.</span>';
+    const ts = new Date(snap.t).toLocaleString();
+    return '<div><b>Going:</b> ' + (snap.going ?? 0) + ' &middot; <b>Maybe:</b> ' + (snap.maybe ?? 0) + ' &middot; <b>Curious:</b> ' + (snap.curious ?? 0) + '</div>' +
+      '<div style="font-size:11px;color:var(--text2);margin-top:2px">last fetched ' + ts + '</div>';
+  }
+
+  async function calLoadCachedEventMetrics(eventUrl) {
+    try {
+      const id = eventIdFromUrl(eventUrl);
+      const data = await api('GET', '/api/fetlife/metrics/event/' + encodeURIComponent(id));
+      const snaps = data.snapshots || [];
+      const display = document.getElementById('cal-metrics-display');
+      if (!display) return;
+      if (!snaps.length) { display.innerHTML = '<span style="color:var(--text2)">No metrics yet — click below to fetch.</span>'; return; }
+      const latest = snaps[snaps.length - 1];
+      let trend = '';
+      if (snaps.length > 1) {
+        const prev = snaps[snaps.length - 2];
+        const dGoing = (latest.going ?? 0) - (prev.going ?? 0);
+        if (dGoing !== 0) trend = ' <span style="color:' + (dGoing > 0 ? '#5fa' : '#f88') + '">(Δ ' + (dGoing > 0 ? '+' : '') + dGoing + ' going since last refresh)</span>';
+      }
+      display.innerHTML = renderMetricSnapshot(latest) + trend;
+    } catch {}
+  }
+
+  async function calRefreshEventMetrics(accountId, eventUrl) {
+    const btn = document.getElementById('cal-metrics-btn');
+    const display = document.getElementById('cal-metrics-display');
+    if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
+    if (display) display.innerHTML = '<span style="color:var(--text2)">Loading event page in headless Chrome (~10–20s)…</span>';
+    try {
+      const id = eventIdFromUrl(eventUrl);
+      const data = await api('POST', '/api/fetlife/metrics/event/refresh', { accountId, eventId: id, eventUrl });
+      if (!data.success) throw new Error(data.error || 'Refresh failed');
+      await calLoadCachedEventMetrics(eventUrl);
+      showToast('RSVPs refreshed', 'success');
+    } catch (err) {
+      if (display) display.innerHTML = '<span style="color:#f88">Refresh failed: ' + escHtml(err.message || 'unknown') + '</span>';
+      showToast('Refresh failed: ' + (err.message || 'unknown'), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Refresh RSVPs'; }
+    }
+  }
 
   window.calCancelPost = async function (platform, postId) {
     if (!confirm('Cancel this scheduled post?')) return;

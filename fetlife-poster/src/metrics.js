@@ -1,0 +1,185 @@
+/**
+ * Engagement metrics scraper.
+ * Refreshes on-demand: load a post or event page, pull counts, append a JSONL snapshot.
+ * Snapshots stored per-id in data/metrics/posts/<id>.jsonl and data/metrics/events/<id>.jsonl.
+ */
+
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { launchWithCookies, waitOutCloudflare } from './poster.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const POSTS_DIR = path.join(__dirname, '..', 'data', 'metrics', 'posts');
+const EVENTS_DIR = path.join(__dirname, '..', 'data', 'metrics', 'events');
+
+function safeKey(s) {
+  return String(s).replace(/[^a-z0-9_-]/gi, '_').slice(0, 200);
+}
+
+async function appendSnapshot(dir, key, snapshot) {
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, safeKey(key) + '.jsonl');
+  await fs.appendFile(file, JSON.stringify({ t: new Date().toISOString(), ...snapshot }) + '\n');
+}
+
+async function readSnapshots(dir, key) {
+  const file = path.join(dir, safeKey(key) + '.jsonl');
+  try {
+    const raw = await fs.readFile(file, 'utf8');
+    return raw.split('\n').filter(Boolean).map(line => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// ── Post scraper ──────────────────────────────────────────────────────────────
+
+export async function scrapePostMetrics(accountId, postUrl) {
+  if (!postUrl || !/^https?:\/\/fetlife\.com\//.test(postUrl)) {
+    throw new Error('postUrl must be a fetlife.com URL');
+  }
+  const { browser, context } = await launchWithCookies(accountId, { headless: true });
+  try {
+    const page = await context.newPage();
+    await page.goto(postUrl, { waitUntil: 'domcontentloaded' });
+    await waitOutCloudflare(page, 30000);
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    if (page.url().includes('/sign_in') || page.url().includes('/login')) {
+      throw new Error(`Not logged in for ${accountId} — refresh cookies`);
+    }
+
+    return await page.evaluate(() => {
+      // Find counts via several strategies; FetLife's class names change but text patterns are durable.
+      const text = document.body.innerText || '';
+
+      const matchN = (rx) => {
+        const m = text.match(rx);
+        return m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
+      };
+
+      // "12 loves" / "1,234 loves" / "1 love"
+      let loves = matchN(/(\d[\d,]*)\s+loves?\b/i);
+      let comments = matchN(/(\d[\d,]*)\s+comments?\b/i);
+
+      // Fallback: data-testid scan
+      if (loves === null) {
+        const el = document.querySelector('[data-testid*="love" i]');
+        if (el) {
+          const m = (el.textContent || '').match(/(\d[\d,]*)/);
+          if (m) loves = parseInt(m[1].replace(/,/g, ''), 10);
+        }
+      }
+      if (comments === null) {
+        const el = document.querySelector('[data-testid*="comment" i]');
+        if (el) {
+          const m = (el.textContent || '').match(/(\d[\d,]*)/);
+          if (m) comments = parseInt(m[1].replace(/,/g, ''), 10);
+        }
+      }
+
+      return {
+        loves: loves ?? 0,
+        comments: comments ?? 0,
+        url: window.location.href,
+      };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
+export async function refreshPostMetrics(accountId, postId, postUrl) {
+  const snap = await scrapePostMetrics(accountId, postUrl);
+  await appendSnapshot(POSTS_DIR, postId, snap);
+  return snap;
+}
+
+export async function readPostMetrics(postId) {
+  return await readSnapshots(POSTS_DIR, postId);
+}
+
+// ── Event scraper ─────────────────────────────────────────────────────────────
+
+export async function scrapeEventMetrics(accountId, eventUrl) {
+  if (!eventUrl || !/^https?:\/\/fetlife\.com\/events\//.test(eventUrl)) {
+    throw new Error('eventUrl must be a fetlife.com /events/... URL');
+  }
+  // Non-headless to mirror the discovery scrapers — FetLife's Cloudflare blocks headless Chrome.
+  const { browser, context } = await launchWithCookies(accountId, { headless: false });
+  try {
+    const page = await context.newPage();
+    await page.goto(eventUrl, { waitUntil: 'domcontentloaded' });
+    await waitOutCloudflare(page, 30000);
+    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+
+    if (page.url().includes('/sign_in') || page.url().includes('/login')) {
+      throw new Error(`Not logged in for ${accountId} — refresh cookies`);
+    }
+
+    return await page.evaluate(() => {
+      const fullText = document.body.innerText || '';
+      const matchN = (rx) => {
+        const m = fullText.match(rx);
+        return m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
+      };
+
+      // FetLife's actual format on event pages — try several variations.
+      const findCount = (labels) => {
+        for (const label of labels) {
+          // "Going (42)" / "Going(42)"
+          let m = fullText.match(new RegExp('\\b' + label + '\\s*\\((\\d[\\d,]*)\\)', 'i'));
+          if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+          // "42 Going" — count first
+          m = fullText.match(new RegExp('(\\d[\\d,]*)\\s+' + label + '\\b', 'i'));
+          if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+          // "Going\n42" / "Going  42"
+          m = fullText.match(new RegExp('\\b' + label + '\\s*\\n?\\s*(\\d[\\d,]*)\\b', 'i'));
+          if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+        }
+        return 0;
+      };
+
+      // Aria/data-testid pass — search anchors with attendance-related testids.
+      const fromTestid = (substr) => {
+        const els = document.querySelectorAll('[data-testid]');
+        for (const el of els) {
+          const t = (el.getAttribute('data-testid') || '').toLowerCase();
+          if (t.includes(substr)) {
+            const m = (el.textContent || '').match(/(\d[\d,]*)/);
+            if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+          }
+        }
+        return null;
+      };
+
+      const title = document.querySelector('h1')?.textContent?.trim() || null;
+      const going = fromTestid('going') ?? findCount(['going', 'attending']);
+      const maybe = fromTestid('maybe') ?? findCount(['maybe', 'might']);
+      const curious = fromTestid('curious') ?? fromTestid('interested') ?? findCount(['curious', 'interested']);
+
+      return {
+        title,
+        going, maybe, curious,
+        url: window.location.href,
+        // Debug payload so we can see what the page actually contained when counts come back 0.
+        _debugTextSample: fullText.slice(0, 1500),
+      };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
+export async function refreshEventMetrics(accountId, eventId, eventUrl) {
+  const snap = await scrapeEventMetrics(accountId, eventUrl);
+  await appendSnapshot(EVENTS_DIR, eventId, snap);
+  return snap;
+}
+
+export async function readEventMetrics(eventId) {
+  return await readSnapshots(EVENTS_DIR, eventId);
+}

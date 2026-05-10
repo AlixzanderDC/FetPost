@@ -15,7 +15,7 @@ const TOKENS_FILE = path.join(DATA_DIR, 'canva-tokens.enc');
 const AUTH_URL = 'https://www.canva.com/api/oauth/authorize';
 const TOKEN_URL = 'https://api.canva.com/rest/v1/oauth/token';
 const API_BASE = 'https://api.canva.com/rest/v1';
-const SCOPES = 'design:meta:read design:content:read';
+const SCOPES = 'design:meta:read design:content:read folder:read';
 
 // ── Encryption (mirrors fetlife-poster/credentials.js so tokens-at-rest are protected) ──
 
@@ -195,6 +195,18 @@ export async function listDesigns({ continuation } = {}) {
   if (continuation) params.set('continuation', continuation);
   const qs = params.toString();
   return await canvaFetch(`/designs${qs ? '?' + qs : ''}`);
+}
+
+/**
+ * List items inside a folder. Pass folderId="root" for the user's top-level Projects folder.
+ * Returns { items: [{ type: 'folder'|'design'|'image', folder?, design?, image? }, ...], continuation? }
+ */
+export async function listFolderItems(folderId = 'root', { continuation, itemTypes } = {}) {
+  const params = new URLSearchParams();
+  if (continuation) params.set('continuation', continuation);
+  if (itemTypes) params.set('item_types', itemTypes); // comma-separated
+  const qs = params.toString();
+  return await canvaFetch(`/folders/${encodeURIComponent(folderId)}/items${qs ? '?' + qs : ''}`);
 }
 
 export async function createExport(designId, format = 'png') {
