@@ -1,6 +1,8 @@
 /**
- * NexusPost UI Server v3
- * Supports: FetLife, Bluesky, OnlyFans, Fansly, ManyVids, NiteFlirt
+ * FetPost UI Server
+ * Currently ships with FetLife enabled. The cross-platform infrastructure for Bluesky /
+ * OnlyFans / Fansly / ManyVids / NiteFlirt is dormant — flip `enabled: true` in the
+ * PLATFORMS map (Index.html) and add a SERVICES entry below to bring one back.
  */
 
 import express from 'express';
@@ -9,6 +11,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as canva from './canva.js';
 
 const execAsync = promisify(exec);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,29 +20,16 @@ const PORT = 4000;
 
 app.use(express.json({ limit: '50mb' }));
 
-const DATA_DIR = path.resolve(__dirname, '..', 'data');
-const TEMPLATES_FILE = path.join(DATA_DIR, 'templates.json');
-
-function loadTemplates() {
-  try { return JSON.parse(fs.readFileSync(TEMPLATES_FILE, 'utf8')); }
-  catch { return []; }
-}
-
-function saveTemplates(list) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(list, null, 2));
-}
-
-function genTplId() {
-  return 'tpl-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-}
-
 const SERVICES = {
   fetlife: { url: 'http://127.0.0.1:3747', secret: process.env.FL_SERVICE_SECRET },
 };
 
+// Cookie script paths for each platform
+// Cookie-extraction scripts are resolved relative to this file (so the package works from
+// any install location) and per-OS (.cmd on Windows, .sh on Linux/macOS).
+const COOKIE_EXT = process.platform === 'win32' ? 'cmd' : 'sh';
 const COOKIE_SCRIPTS = {
-  fetlife: 'C:\\Users\\benja\\Documents\\nexuspost\\fetlife-poster\\start-cookies.cmd',
+  fetlife: path.resolve(__dirname, '..', '..', 'fetlife-poster', `start-cookies.${COOKIE_EXT}`),
 };
 
 const UI_PASSWORD = process.env.UI_PASSWORD || 'nexuspost';
@@ -137,6 +127,82 @@ app.post('/api/accounts/:platform/:accountId/extract-cookies', requireAuth, asyn
   }, 3000);
 });
 
+// User signals "I've logged in" from the UI; extractor (running headless) picks this up via the signal file.
+app.post('/api/cookie-signal', requireAuth, async (req, res) => {
+  try {
+    fs.writeFileSync('/tmp/fetpost-cookie-signal', new Date().toISOString());
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Canva integration (OAuth + design picker) ───────────────────────────────
+
+function canvaConfigured() {
+  return !!(process.env.CANVA_CLIENT_ID && process.env.CANVA_CLIENT_SECRET && process.env.CANVA_REDIRECT_URI);
+}
+
+app.get('/api/canva/status', requireAuth, async (req, res) => {
+  try {
+    res.json({
+      configured: canvaConfigured(),
+      connected: canvaConfigured() ? await canva.isConnected() : false,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Step 1: kick off OAuth — browser visits this and gets redirected to Canva.
+// Not behind requireAuth because it has to work as a top-level browser navigation;
+// we rely on the OAuth state parameter for CSRF protection.
+app.get('/oauth/canva/authorize', (req, res) => {
+  if (!canvaConfigured()) return res.status(400).send('Canva not configured. Set CANVA_CLIENT_ID, CANVA_CLIENT_SECRET, CANVA_REDIRECT_URI in .env.');
+  try {
+    res.redirect(canva.buildAuthUrl(process.env.CANVA_REDIRECT_URI));
+  } catch (err) { res.status(500).send('OAuth start failed: ' + err.message); }
+});
+
+// Step 2: Canva sends the user back here with a code.
+app.get('/oauth/canva/callback', async (req, res) => {
+  const { code, state, error, error_description } = req.query;
+  if (error) return res.status(400).send(`<h2>Canva authorization failed</h2><pre>${error}: ${error_description || ''}</pre>`);
+  if (!code || !state) return res.status(400).send('Missing code or state.');
+  try {
+    await canva.exchangeCodeForTokens(code, state, process.env.CANVA_REDIRECT_URI);
+    res.send(`<!doctype html><html><body style="font-family:system-ui;padding:40px;text-align:center;background:#1a1a1a;color:#eee">
+      <h2 style="color:#5fa">✓ Canva connected</h2>
+      <p>You can close this tab and return to FetPost.</p>
+      <script>setTimeout(() => window.close(), 1500);</script>
+    </body></html>`);
+  } catch (err) {
+    res.status(500).send(`<h2>Token exchange failed</h2><pre>${err.message}</pre>`);
+  }
+});
+
+app.post('/api/canva/disconnect', requireAuth, async (req, res) => {
+  try { await canva.clearTokens(); res.json({ success: true }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/canva/designs', requireAuth, async (req, res) => {
+  try {
+    const result = await canva.listDesigns({ continuation: req.query.continuation });
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Pick a design → export → download → return as image attachment
+app.post('/api/canva/import-design', requireAuth, async (req, res) => {
+  const { designId, name, format } = req.body || {};
+  if (!designId) return res.status(400).json({ error: 'designId required' });
+  try {
+    const urls = await canva.exportAndWait(designId, format || 'png');
+    if (!urls.length) return res.status(500).json({ error: 'Export returned no URLs' });
+    const attachment = await canva.fetchExportAsAttachment(urls[0], (name || 'canva-design') + (format === 'jpg' ? '.jpg' : '.png'));
+    res.json({ success: true, image: attachment });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── FetLife groups + organized events (cross-post discovery) ─────────────────
 
 app.get('/api/fetlife/:accountId/groups', requireAuth, async (req, res) => {
@@ -167,20 +233,6 @@ app.post('/api/fetlife/:accountId/events/refresh', requireAuth, async (req, res)
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/fetlife/:accountId/events/attending', requireAuth, async (req, res) => {
-  try {
-    const result = await proxyRequest('fetlife', 'GET', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/attending');
-    res.status(result.status).json(result.data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/fetlife/:accountId/events/attending/refresh', requireAuth, async (req, res) => {
-  try {
-    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/attending/refresh');
-    res.status(result.status).json(result.data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.get('/api/fetlife/:accountId/events/details', requireAuth, async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url query param required' });
@@ -189,61 +241,6 @@ app.get('/api/fetlife/:accountId/events/details', requireAuth, async (req, res) 
       '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/details?url=' + encodeURIComponent(url));
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ── Templates (UI-local) ─────────────────────────────────────────────────────
-// Each template: { id, name, title, body, accountId, groupId|null, createdAt, updatedAt }
-// accountId is required (PIN to one account). groupId is optional; when set, the
-// template only appears for group cross-posts targeting that group.
-
-app.get('/api/templates', requireAuth, (req, res) => {
-  res.json({ templates: loadTemplates() });
-});
-
-app.post('/api/templates', requireAuth, (req, res) => {
-  const { name, title, body, accountId, groupId } = req.body || {};
-  if (!name || !body || !accountId) {
-    return res.status(400).json({ error: 'name, body, accountId required' });
-  }
-  const list = loadTemplates();
-  const now = new Date().toISOString();
-  const tpl = {
-    id: genTplId(),
-    name: String(name).trim(),
-    title: title ? String(title).trim() : '',
-    body: String(body),
-    accountId: String(accountId),
-    groupId: groupId ? String(groupId) : null,
-    createdAt: now,
-    updatedAt: now,
-  };
-  list.push(tpl);
-  saveTemplates(list);
-  res.json({ template: tpl });
-});
-
-app.patch('/api/templates/:id', requireAuth, (req, res) => {
-  const list = loadTemplates();
-  const i = list.findIndex(t => t.id === req.params.id);
-  if (i < 0) return res.status(404).json({ error: 'Template not found' });
-  const { name, title, body, accountId, groupId } = req.body || {};
-  if (name !== undefined)      list[i].name = String(name).trim();
-  if (title !== undefined)     list[i].title = String(title || '').trim();
-  if (body !== undefined)      list[i].body = String(body);
-  if (accountId !== undefined) list[i].accountId = String(accountId);
-  if (groupId !== undefined)   list[i].groupId = groupId ? String(groupId) : null;
-  list[i].updatedAt = new Date().toISOString();
-  saveTemplates(list);
-  res.json({ template: list[i] });
-});
-
-app.delete('/api/templates/:id', requireAuth, (req, res) => {
-  const list = loadTemplates();
-  const i = list.findIndex(t => t.id === req.params.id);
-  if (i < 0) return res.status(404).json({ error: 'Template not found' });
-  const [removed] = list.splice(i, 1);
-  saveTemplates(list);
-  res.json({ template: removed });
 });
 
 // ── Posts ─────────────────────────────────────────────────────────────────────
@@ -312,10 +309,10 @@ app.delete('/api/posts/:platform/:postId', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/api/posts/:platform/:postId', requireAuth, async (req, res) => {
-  const { platform, postId } = req.params;
+app.post('/api/posts/:platform/clear-by-status', requireAuth, async (req, res) => {
+  const { platform } = req.params;
   try {
-    const result = await proxyRequest(platform, 'PATCH', '/posts/' + postId, req.body);
+    const result = await proxyRequest(platform, 'POST', '/posts/clear-by-status', req.body);
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -386,6 +383,11 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log('[nexuspost-ui] Running on http://0.0.0.0:' + PORT);
-  console.log('[nexuspost-ui] FL secret:', process.env.FL_SERVICE_SECRET ? process.env.FL_SERVICE_SECRET.slice(0,6) + '...' : 'NOT SET');
+  console.log('[fetpost-ui] Running on http://127.0.0.1:' + PORT);
+  if (!process.env.FL_SERVICE_SECRET) {
+    console.warn('[fetpost-ui] WARNING: FL_SERVICE_SECRET not set — UI cannot reach the FetLife service. Did you run setup.cmd?');
+  }
+  if (!process.env.UI_PASSWORD) {
+    console.warn('[fetpost-ui] WARNING: UI_PASSWORD not set — using insecure default. Set it in .env');
+  }
 });

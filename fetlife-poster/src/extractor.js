@@ -11,8 +11,39 @@
 import { chromium } from 'playwright';
 import fs from 'fs/promises';
 import path from 'path';
+import readline from 'readline';
 import { fileURLToPath } from 'url';
 import { getCredentials, listAccounts } from './credentials.js';
+
+function waitForEnter(message) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(message, () => { rl.close(); resolve(); });
+  });
+}
+
+const SIGNAL_FILE = '/tmp/fetpost-cookie-signal';
+async function waitForUiSignal(username) {
+  console.log(`[extractor] Waiting up to 5 minutes for UI "I've logged in" signal for ${username}...`);
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    try {
+      await fs.access(SIGNAL_FILE);
+      await fs.unlink(SIGNAL_FILE);
+      return;
+    } catch {}
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  throw new Error(`Timed out waiting for UI signal for ${username}`);
+}
+
+async function waitForLoginComplete(username) {
+  if (process.stdin.isTTY) {
+    await waitForEnter(`[extractor] Press ENTER once you are logged in (or Ctrl+C to abort): `);
+  } else {
+    await waitForUiSignal(username);
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const COOKIES_DIR = path.join(__dirname, '..', 'data', 'cookies');
@@ -20,11 +51,58 @@ const FL_BASE = 'https://fetlife.com';
 
 const delay = (min, max) => new Promise(r => setTimeout(r, min + Math.random() * (max - min)));
 
-async function extractCookiesForAccount(accountId, username, password) {
-  console.log(`[extractor] Extracting cookies for ${username}...`);
-
+async function tryHeadlessRefresh(accountId, username) {
+  const savedCookiePath = path.join(COOKIES_DIR, accountId + '.json');
+  let existingCookies;
+  try {
+    existingCookies = JSON.parse(await fs.readFile(savedCookiePath, 'utf8'));
+  } catch {
+    return null;
+  }
+  console.log(`[extractor] Trying headless refresh for ${username}...`);
   const browser = await chromium.launch({
     headless: true,
+    channel: 'chrome',
+    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+  });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 800 },
+  });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    window.chrome = { runtime: {} };
+  });
+  try {
+    await context.addCookies(existingCookies);
+    const page = await context.newPage();
+    await page.goto(`${FL_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await delay(2000, 3000);
+    const url = page.url();
+    if (url.includes('/sign_in') || url.includes('/login') || url.includes('challenge')) {
+      await browser.close();
+      return null;
+    }
+    const cookies = await context.cookies();
+    const flCookies = cookies.filter(c => c.domain.includes('fetlife.com'));
+    await fs.writeFile(savedCookiePath, JSON.stringify(flCookies, null, 2), 'utf8');
+    await browser.close();
+    console.log(`[extractor] Refreshed ${flCookies.length} cookies for ${username} (headless)`);
+    return { success: true, accountId, username, cookieCount: flCookies.length };
+  } catch {
+    await browser.close().catch(() => {});
+    return null;
+  }
+}
+
+async function extractCookiesForAccount(accountId, username, password) {
+  const refreshed = await tryHeadlessRefresh(accountId, username);
+  if (refreshed) return refreshed;
+
+  console.log(`[extractor] Headless refresh failed — launching headed Chrome for manual login: ${username}`);
+
+  const browser = await chromium.launch({
+    headless: false,
     channel: 'chrome',
     args: [
       '--no-sandbox',
@@ -43,62 +121,48 @@ async function extractCookiesForAccount(accountId, username, password) {
   });
 
   const page = await context.newPage();
+  const savedCookiePath = path.join(COOKIES_DIR, accountId + '.json');
 
   try {
-    // Check if we have saved cookies that still work
-    const savedCookiePath = path.join(COOKIES_DIR, accountId + '.json');
-    let cookiesValid = false;
+    await page.goto(`${FL_BASE}/sign_in`, { waitUntil: 'domcontentloaded' });
 
+    // Best-effort autofill — if Cloudflare or a different page is showing, this
+    // just throws and we fall through to manual login.
     try {
-      const savedCookies = JSON.parse(await fs.readFile(savedCookiePath, 'utf8'));
-      await context.addCookies(savedCookies);
-      await page.goto(`${FL_BASE}/home`, { waitUntil: 'domcontentloaded' });
-      await delay(1000, 2000);
-
-      if (!page.url().includes('/login') && !page.url().includes('/sign_in')) {
-        console.log(`[extractor] Existing cookies still valid for ${username}`);
-        cookiesValid = true;
-      } else {
-        console.log(`[extractor] Saved cookies expired for ${username}, logging in fresh`);
-        await context.clearCookies();
-      }
-    } catch {
-      console.log(`[extractor] No saved cookies found for ${username}, logging in fresh`);
-    }
-
-    if (!cookiesValid) {
-      // Fresh login
-      await page.goto(`${FL_BASE}/sign_in`, { waitUntil: 'domcontentloaded' });
-      await delay(1000, 2000);
-
-      // Handle Cloudflare if present
-      const url = page.url();
-      if (url.includes('cloudflare') || url.includes('challenge')) {
-        console.log(`[extractor] Cloudflare challenge detected for ${username} — switching to headed mode`);
-        await browser.close();
-        return await extractWithHeadedBrowser(accountId, username, password);
-      }
-
-      await page.fill('input[name="user[login]"]', username);
+      await page.fill('input[name="user[login]"]', username, { timeout: 5000 });
       await delay(300, 700);
-      await page.fill('input[name="user[password]"]', password);
+      await page.fill('input[name="user[password]"]', password, { timeout: 5000 });
       await delay(400, 900);
-      await page.click('input[type="submit"], button[type="submit"]');
-      await delay(3000, 5000);
-
-    if (page.url().includes('/sign_in') || page.url().includes('/login')) {
-  // Try navigating to home directly after login
-  await page.goto('https://fetlife.com/home', { waitUntil: 'domcontentloaded' });
-  await delay(2000, 3000);
-  if (page.url().includes('/sign_in') || page.url().includes('/login')) {
-    throw new Error(`Login failed for ${username}`);
-  }
-}
-
-      console.log(`[extractor] Login successful for ${username}`);
+      await page.click('input[type="submit"], button[type="submit"]', { timeout: 5000 });
+      console.log(`[extractor] Submitted credentials for ${username}`);
+    } catch {
+      console.log(`[extractor] Autofill not possible — please log in manually in the Chrome window`);
     }
 
-    // Extract and save cookies
+    // Give the autofill submit ~30s to land a session cookie before we ask for human help.
+    console.log(`[extractor] Polling for session cookie after autofill (up to 30s)...`);
+    let autoLoggedIn = false;
+    const autoDeadline = Date.now() + 30 * 1000;
+    while (Date.now() < autoDeadline) {
+      try {
+        const c = await context.cookies();
+        const session = c.find(x => (x.name === '_session_id' || x.name === 'remember_user_token') && x.value && x.value.length > 10 && x.domain.includes('fetlife.com'));
+        if (session) {
+          let url = '';
+          try { url = page.url(); } catch {}
+          if (!url.includes('/sign_in') && !url.includes('/login')) { autoLoggedIn = true; break; }
+        }
+      } catch {}
+      await delay(2000, 2000);
+    }
+
+    if (!autoLoggedIn) {
+      console.log(`\n[extractor] >>> Autofill didn't complete (likely Cloudflare). Log in manually in the Chrome window. <<<`);
+      await waitForLoginComplete(username);
+    } else {
+      console.log(`[extractor] Auto-login succeeded for ${username} — no manual step needed`);
+    }
+
     const cookies = await context.cookies();
     const flCookies = cookies.filter(c => c.domain.includes('fetlife.com'));
 

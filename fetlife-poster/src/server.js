@@ -4,13 +4,12 @@
  */
 
 import express from 'express';
-import { schedulePost, scheduleGroupEventBatch, cancelPost, getQueue, updateJob } from './scheduler.js';
+import { schedulePost, scheduleGroupEventBatch, cancelPost, getQueue, clearJobsByStatus } from './scheduler.js';
 import { storeCredentials, listAccounts, removeAccount, testLogin } from './credentials.js';
 import { getPostHistory } from './history.js';
 import {
   refreshGroupsForAccount, readCachedGroups,
   refreshEventsForAccount, readCachedEvents,
-  refreshAttendingEventsForAccount, readCachedAttendingEvents,
   getEventDetails,
 } from './discovery.js';
 
@@ -145,13 +144,18 @@ app.delete('/posts/:postId', auth, async (req, res) => {
   }
 });
 
-// Edit a scheduled post (content/body/title/scheduledAt)
-app.patch('/posts/:postId', auth, async (req, res) => {
+// Bulk clear jobs by status (e.g., clear all failed posts)
+app.post('/posts/clear-by-status', auth, async (req, res) => {
+  const { status } = req.body || {};
+  const allowed = ['failed', 'cancelled', 'sent'];
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ error: 'status must be one of: ' + allowed.join(', ') });
+  }
   try {
-    const updated = await updateJob(req.params.postId, req.body || {});
-    res.json({ success: true, post: updated });
+    const removed = await clearJobsByStatus(status);
+    res.json({ success: true, removed });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -198,24 +202,6 @@ app.get('/accounts/:accountId/events', auth, async (req, res) => {
 app.post('/accounts/:accountId/events/refresh', auth, async (req, res) => {
   try {
     const result = await refreshEventsForAccount(req.params.accountId);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/accounts/:accountId/events/attending', auth, async (req, res) => {
-  try {
-    const cached = await readCachedAttendingEvents(req.params.accountId);
-    res.json(cached || { accountId: req.params.accountId, fetchedAt: null, events: [] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/accounts/:accountId/events/attending/refresh', auth, async (req, res) => {
-  try {
-    const result = await refreshAttendingEventsForAccount(req.params.accountId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

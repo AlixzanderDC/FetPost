@@ -13,6 +13,7 @@ A self-hosted scheduling and cross-posting tool for [FetLife](https://fetlife.co
 - **Saved templates** scoped per account/per group for posts you write often.
 - **Auto-discovery** of your joined groups and organized/attending events for quick selection.
 - **Image attachments** with thumbnail previews in the calendar and queue.
+- **Canva integration** (optional) — pick a design directly from your Canva account, FetPost exports it as PNG and attaches it to the post.
 - **Cookie-based authentication** — log in once via a real browser, then the bot uses session cookies for all subsequent posting (no headless password-login race against Cloudflare).
 
 ## Architecture
@@ -80,6 +81,26 @@ FetLife sits behind Cloudflare, which actively blocks automated logins from data
 5. FetPost saves the cookies. All future posts use those cookies — no password login, no Cloudflare challenge.
 
 Cookies typically last 1–4 weeks. A scheduled cron job at 4 AM every other day attempts a silent **headless refresh** (revisit `/home`, FetLife rotates cookies, re-save) to extend their life. When the cookies fully expire, the cron fails and you redo the manual login flow.
+
+## Optional: Canva integration
+
+If you create your post images in Canva, FetPost can pull designs straight from your account.
+
+1. Go to https://www.canva.com/developers/ and create a new integration.
+2. Add a redirect URL matching where FetPost runs — typically `http://localhost:4000/oauth/canva/callback` (local) or `http://<tailscale-name>:4000/oauth/canva/callback` (server).
+3. Add scopes `design:meta:read` and `design:content:read`.
+4. Copy the Client ID and Client Secret into your `.env`:
+
+   ```
+   CANVA_CLIENT_ID=your-client-id
+   CANVA_CLIENT_SECRET=your-client-secret
+   CANVA_REDIRECT_URI=http://localhost:4000/oauth/canva/callback
+   ```
+
+5. Restart FetPost. The **Accounts** tab will now show a "🎨 Canva Integration" card. Click **Connect Canva**, approve in the browser tab that opens, and you're set.
+6. In **Compose** with Image post type, you'll see a **Pick from Canva** button. Click it to browse your designs and import one as the post image.
+
+Note: Canva may require HTTPS for non-localhost redirect URIs. If your registration is rejected, set up TLS on your server (Caddy + Let's Encrypt is easiest) and use the `https://` URL.
 
 ## 24/7 deployment
 

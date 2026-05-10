@@ -91,38 +91,18 @@ export async function cancelPost(postId) {
   await saveQueue(queue);
 }
 
-// Edit a still-scheduled job. Only `content`, `body`, `title`, `scheduledAt` may change.
-// Anything else is a different post — cancel and re-create.
-export async function updateJob(postId, fields) {
+export async function clearJobsByStatus(status) {
   const queue = await loadQueue();
-  const job = queue[postId];
-  if (!job) throw new Error(`Post ${postId} not found`);
-  if (job.status !== 'scheduled') throw new Error(`Cannot edit post in status "${job.status}"`);
-
-  const allowed = ['content', 'body', 'title'];
-  for (const f of allowed) {
-    if (fields[f] !== undefined) job[f] = fields[f];
-  }
-
-  let timeChanged = false;
-  if (fields.scheduledAt !== undefined) {
-    const newDate = new Date(fields.scheduledAt);
-    if (isNaN(newDate.getTime())) throw new Error('scheduledAt must be a valid date');
-    if (newDate <= new Date()) throw new Error('scheduledAt must be in the future');
-    if (newDate.toISOString() !== job.scheduledAt) {
-      job.scheduledAt = newDate.toISOString();
-      timeChanged = true;
+  let removed = 0;
+  for (const [postId, job] of Object.entries(queue)) {
+    if (job.status === status) {
+      if (activeTimers.has(postId)) { clearTimeout(activeTimers.get(postId)); activeTimers.delete(postId); }
+      delete queue[postId];
+      removed++;
     }
   }
-
-  job.updatedAt = new Date().toISOString();
   await saveQueue(queue);
-
-  if (timeChanged) {
-    if (activeTimers.has(postId)) { clearTimeout(activeTimers.get(postId)); activeTimers.delete(postId); }
-    armTimer(job);
-  }
-  return job;
+  return removed;
 }
 
 function armTimer(job) {
