@@ -276,6 +276,56 @@ app.post('/api/fetlife/:accountId/events/refresh', requireAuth, async (req, res)
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Tracked events
+app.get('/api/fetlife/:accountId/events/tracked', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/tracked');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/fetlife/:accountId/events/tracked', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/tracked', req.body);
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/fetlife/:accountId/events/tracked', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'DELETE', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/tracked', req.body);
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/fetlife/:accountId/events/tracked/refresh-all', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/tracked/refresh-all');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/fetlife/:accountId/events/insights', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/insights');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/fetlife/:accountId/events/past', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/past');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/fetlife/:accountId/events/past/refresh', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/past/refresh');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/fetlife/:accountId/events/details', requireAuth, async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url query param required' });

@@ -118,6 +118,112 @@ export async function listOrganizedEvents(accountId) {
   });
 }
 
+// ── Past organized events (events you've already hosted) ─────────────────────
+
+async function scrapePastEventsPage(page) {
+  return await page.$$eval('h3 a[href*="/events/"][title]', (anchors) => {
+    const seen = new Map();
+    for (const a of anchors) {
+      const href = a.getAttribute('href') || '';
+      const m = href.match(/^\/events\/(\d{4})\/(\d{2})\/(\d{2})\/([^?]+)/);
+      if (!m) continue;
+      const [, y, mo, d, slug] = m;
+      const cleanUrl = `https://fetlife.com/events/${y}/${mo}/${d}/${slug}`;
+      if (seen.has(cleanUrl)) continue;
+      const card = a.closest('[data-testid]');
+      let category = null, dateText = null, location = null, eventId = null;
+      if (card) {
+        const idMatch = (card.getAttribute('data-testid') || '').match(/^(\d+)/);
+        if (idMatch) eventId = idMatch[1];
+        const cat = card.querySelector('[data-testid="category pill"]');
+        if (cat) category = cat.textContent.trim();
+        const rows = card.querySelectorAll('div.flex.items-start');
+        if (rows[0]) dateText = rows[0].textContent.trim().replace(/\s+/g, ' ');
+        if (rows[1]) location = rows[1].textContent.trim().replace(/\s+/g, ' ');
+      }
+      seen.set(cleanUrl, {
+        id: eventId, url: cleanUrl,
+        title: a.getAttribute('title') || a.textContent.trim(),
+        category, dateText, location, urlDate: `${y}-${mo}-${d}`,
+      });
+    }
+    return [...seen.values()];
+  });
+}
+
+export async function listPastOrganizedEvents(accountId) {
+  return withSession(accountId, async (page) => {
+    await page.goto(`${FL_BASE}/events/organizing/past`, { waitUntil: 'domcontentloaded' });
+    await waitOutCloudflare(page, 30000);
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(2000);
+
+    // Move the mouse to a safe area (middle of viewport) — required for wheel events
+    // to register without first clicking, which could fire a stray navigation.
+    try { await page.mouse.move(400, 400); } catch {}
+
+    let lastCount = 0;
+    let stable = 0;
+    const maxIterations = 80;
+    for (let i = 0; i < maxIterations; i++) {
+      // Confirm we're still on the right URL — abort if something redirected us.
+      const currentUrl = page.url();
+      if (!currentUrl.includes('/events/organizing/past')) {
+        console.log(`[discovery] URL drift detected: ${currentUrl} — aborting scroll loop`);
+        break;
+      }
+
+      // Try multiple scroll strategies per iteration.
+      await page.evaluate(() => {
+        const anchors = document.querySelectorAll('h3 a[href*="/events/"][title]');
+        if (anchors.length) anchors[anchors.length - 1].scrollIntoView({ behavior: 'instant', block: 'end' });
+        window.scrollTo(0, document.body.scrollHeight);
+      });
+      await page.waitForTimeout(400);
+      try { await page.mouse.wheel(0, 2000); } catch {}
+      await page.waitForTimeout(1800);
+
+      const count = await page.$$eval('h3 a[href*="/events/"][title]', els => els.length);
+      console.log(`[discovery] Past events scroll ${i + 1}: ${count} cards loaded`);
+      if (count === lastCount) {
+        stable++;
+        if (stable >= 4) break;
+      } else {
+        stable = 0;
+        lastCount = count;
+      }
+    }
+    console.log(`[discovery] Past events scrape converged at ${lastCount} cards`);
+
+    try {
+      const dims = await page.evaluate(() => ({
+        url: window.location.pathname + window.location.search,
+        scrollY: window.scrollY,
+        innerHeight: window.innerHeight,
+        bodyScrollHeight: document.body.scrollHeight,
+      }));
+      console.log('[discovery] Final page state:', JSON.stringify(dims));
+    } catch {}
+
+    const events = await scrapePastEventsPage(page);
+    return events.sort((a, b) => (b.urlDate || '').localeCompare(a.urlDate || ''));
+  });
+}
+
+export async function refreshPastEventsForAccount(accountId) {
+  const events = await listPastOrganizedEvents(accountId);
+  await fs.mkdir(EVENTS_DIR, { recursive: true });
+  const out = { accountId, fetchedAt: new Date().toISOString(), events };
+  await fs.writeFile(path.join(EVENTS_DIR, `${accountId}-past.json`), JSON.stringify(out, null, 2));
+  return out;
+}
+
+export async function readCachedPastEvents(accountId) {
+  try {
+    return JSON.parse(await fs.readFile(path.join(EVENTS_DIR, `${accountId}-past.json`), 'utf8'));
+  } catch { return null; }
+}
+
 export async function refreshEventsForAccount(accountId) {
   const events = await listOrganizedEvents(accountId);
   await fs.mkdir(EVENTS_DIR, { recursive: true });

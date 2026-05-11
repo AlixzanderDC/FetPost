@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { getCredentials, updateAccountStatus } from './credentials.js';
 import { postStatus, postPicture, postEvent, postToGroup } from './poster.js';
 import { logHistory } from './history.js';
+import { addTrackedEvents } from './tracked-events.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const QUEUE_FILE = path.join(__dirname, '..', 'data', 'queue.json');
@@ -60,6 +61,12 @@ export async function schedulePost(job) {
 export async function scheduleGroupEventBatch({ parentId, accountId, eventUrl, title, body, groupIds, scheduledAt }) {
   if (!Array.isArray(groupIds) || groupIds.length === 0) {
     throw new Error('groupIds must be a non-empty array');
+  }
+  // Auto-track this event for future RSVP analysis. Best-effort — failure shouldn't block scheduling.
+  if (eventUrl) {
+    addTrackedEvents(accountId, [eventUrl], 'crosspost').catch(err =>
+      console.warn(`[scheduler] Failed to auto-track ${eventUrl}: ${err.message}`)
+    );
   }
   const baseTime = (scheduledAt instanceof Date ? scheduledAt : new Date(scheduledAt)).getTime();
   let cursor = baseTime;

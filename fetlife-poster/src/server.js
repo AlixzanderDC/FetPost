@@ -10,12 +10,16 @@ import { getPostHistory } from './history.js';
 import {
   refreshGroupsForAccount, readCachedGroups,
   refreshEventsForAccount, readCachedEvents,
+  refreshPastEventsForAccount, readCachedPastEvents,
   getEventDetails,
 } from './discovery.js';
 import {
   refreshPostMetrics, readPostMetrics,
   refreshEventMetrics, readEventMetrics,
 } from './metrics.js';
+import {
+  listTrackedEvents, addTrackedEvents, removeTrackedEvent, refreshAllTrackedRsvps,
+} from './tracked-events.js';
 
 const app = express();
 const PORT = 3747;
@@ -216,6 +220,98 @@ app.get('/accounts/:accountId/events', auth, async (req, res) => {
 app.post('/accounts/:accountId/events/refresh', auth, async (req, res) => {
   try {
     const result = await refreshEventsForAccount(req.params.accountId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Aggregator for the Event Insights view: returns every event (upcoming + past) organized
+// by the account, each annotated with its full snapshot history if we've scraped any.
+app.get('/accounts/:accountId/events/insights', auth, async (req, res) => {
+  try {
+    const accountId = req.params.accountId;
+    const upcomingCache = await readCachedEvents(accountId);
+    const pastCache = await readCachedPastEvents(accountId);
+    const tracked = await listTrackedEvents(accountId);
+    const upcoming = (upcomingCache && upcomingCache.events) || [];
+    const past = (pastCache && pastCache.events) || [];
+    // Dedupe by URL — discovery wins over tracked (richer fields), tracked fills gaps.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const byUrl = new Map();
+    for (const t of tracked) {
+      const isPast = (t.urlDate || '') < todayStr;
+      byUrl.set(t.url, { url: t.url, title: t.title || 'Untitled', urlDate: t.urlDate, source: t.source, isPast, _fromTracked: true });
+    }
+    for (const e of past) byUrl.set(e.url, { ...byUrl.get(e.url), ...e, isPast: true });
+    for (const e of upcoming) byUrl.set(e.url, { ...byUrl.get(e.url), ...e, isPast: false });
+    const events = [...byUrl.values()];
+    events.sort((a, b) => (b.urlDate || '').localeCompare(a.urlDate || ''));
+    for (const event of events) {
+      const eventKey = String(event.url).replace(/[^a-z0-9_-]/gi, '_').slice(0, 200);
+      const snapshots = await readEventMetrics(eventKey);
+      event.snapshots = snapshots;
+      event.latestSnapshot = snapshots.length ? snapshots[snapshots.length - 1] : null;
+    }
+    res.json({
+      accountId,
+      totalEvents: events.length,
+      upcomingFetchedAt: upcomingCache ? upcomingCache.fetchedAt : null,
+      pastFetchedAt: pastCache ? pastCache.fetchedAt : null,
+      events,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Tracked events ──────────────────────────────────────────────────────────
+
+app.get('/accounts/:accountId/events/tracked', auth, async (req, res) => {
+  try {
+    const events = await listTrackedEvents(req.params.accountId);
+    res.json({ accountId: req.params.accountId, events });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/accounts/:accountId/events/tracked', auth, async (req, res) => {
+  const { urls } = req.body || {};
+  if (!Array.isArray(urls)) return res.status(400).json({ error: 'urls array required' });
+  try {
+    const result = await addTrackedEvents(req.params.accountId, urls, 'manual');
+    res.json({ success: true, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/accounts/:accountId/events/tracked', auth, async (req, res) => {
+  const { url } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'url required' });
+  try {
+    const result = await removeTrackedEvent(req.params.accountId, url);
+    res.json({ success: true, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Long-running: return immediately, scrape in background.
+app.post('/accounts/:accountId/events/tracked/refresh-all', auth, async (req, res) => {
+  res.json({ success: true, message: 'Refresh started in background — check fetlife-poster.log for progress' });
+  refreshAllTrackedRsvps(req.params.accountId)
+    .then(r => console.log(`[tracked] Done for ${req.params.accountId}: ${r.processed}/${r.total} processed`))
+    .catch(err => console.error(`[tracked] Refresh failed for ${req.params.accountId}:`, err.message));
+});
+
+app.get('/accounts/:accountId/events/past', auth, async (req, res) => {
+  try {
+    const cached = await readCachedPastEvents(req.params.accountId);
+    res.json(cached || { accountId: req.params.accountId, fetchedAt: null, events: [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/accounts/:accountId/events/past/refresh', auth, async (req, res) => {
+  try {
+    const result = await refreshPastEventsForAccount(req.params.accountId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

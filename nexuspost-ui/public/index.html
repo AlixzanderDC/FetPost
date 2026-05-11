@@ -274,6 +274,10 @@
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
         History
       </div>
+      <div class="nav-item" onclick="showView('insights')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 14h12"/><rect x="3" y="9" width="2" height="5"/><rect x="7" y="6" width="2" height="8"/><rect x="11" y="3" width="2" height="11"/></svg>
+        Event Insights
+      </div>
       <div class="nav-label">Settings</div>
       <div class="nav-item" onclick="showView('accounts')">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="3"/><path d="M1 14c0-2.76 2.24-5 5-5"/><circle cx="12" cy="7" r="2"/><path d="M9.5 14c0-1.93 1.12-3 2.5-3s2.5 1.07 2.5 3"/></svg>
@@ -469,6 +473,23 @@
       <!-- History -->
       <div class="view" id="view-history"><div id="history-list"></div></div>
 
+      <div class="view" id="view-insights">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+          <div>
+            <h2 style="margin:0 0 4px 0;font-size:20px;color:var(--text0)">Event Insights</h2>
+            <div style="font-size:12px;color:var(--text2)">RSVP trends + comparison across one account's organized events</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="insights-account" class="form-select" style="min-width:200px" onchange="loadInsights()"></select>
+            <button class="btn btn-sm" onclick="refreshInsightsUpcomingOnly()" title="Quick: just re-scrape upcoming events">↻ Upcoming</button>
+            <button class="btn btn-sm" onclick="refreshInsightsAccount()" title="Slow: re-scrape upcoming + past events">↻ Upcoming + past</button>
+          </div>
+        </div>
+        <div id="insights-content">
+          <div class="loading">Select an account to load insights.</div>
+        </div>
+      </div>
+
       <!-- Accounts -->
       <div class="view" id="view-accounts">
         <div id="canva-card" style="background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:18px;display:none">
@@ -483,6 +504,45 @@
         <div id="accounts-sections"></div>
       </div>
 
+    </div>
+  </div>
+</div>
+
+<!-- Tracked events: pick from FetLife past-events scrape -->
+<div class="modal-overlay hidden" id="tracked-picker-modal">
+  <div class="modal" style="max-width:720px;width:92vw;max-height:85vh;display:flex;flex-direction:column">
+    <div class="modal-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Pick past events to track</span>
+      <button class="btn btn-sm" onclick="closeTrackedPickerModal()">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Events scraped from FetLife's <code>/events/organizing/past</code> for this account. Check the ones you want tracked. Already-tracked events are pre-checked.</div>
+    <div id="tracked-picker-toolbar" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <button class="btn btn-sm" onclick="trackedPickerSelectAll()">Select all</button>
+      <button class="btn btn-sm" onclick="trackedPickerDeselectAll()">Deselect all</button>
+      <button class="btn btn-sm" onclick="trackedPickerRescrape()">↻ Re-scrape from FetLife</button>
+      <div id="tracked-picker-status" style="font-size:11px;color:var(--text2);margin-left:auto"></div>
+    </div>
+    <div id="tracked-picker-list" style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:6px;padding:8px;min-height:200px"></div>
+    <div id="tracked-picker-feedback" style="font-size:12px;color:var(--text2);margin-top:8px;min-height:18px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+      <button class="btn" onclick="closeTrackedPickerModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitTrackedPicker()">Add selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tracked events: paste URLs -->
+<div class="modal-overlay hidden" id="tracked-paste-modal">
+  <div class="modal" style="max-width:560px;width:90vw">
+    <div class="modal-title">Add tracked event URLs</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Paste FetLife event URLs, one per line. Examples:<br>
+      <code style="font-size:11px">https://fetlife.com/events/2026/04/23/crucible-rendezvous-dz2mvz</code></div>
+    <textarea id="tracked-paste-textarea" rows="10" style="width:100%;background:var(--bg2);color:var(--text0);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--font-mono);font-size:12px" placeholder="https://fetlife.com/events/.../...
+https://fetlife.com/events/.../..."></textarea>
+    <div id="tracked-paste-feedback" style="font-size:12px;color:var(--text2);margin-top:8px;min-height:18px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button class="btn" onclick="closeTrackedPasteModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitTrackedPaste()">Add</button>
     </div>
   </div>
 </div>
@@ -604,7 +664,8 @@
   let currentPostType = 'text';
   let currentQueueTab = 'scheduled';
   let allPosts = [];
-  let allOrganizedEvents = []; // FetLife events organized by user's accounts (auto-populated)
+  let allOrganizedEvents = []; // FetLife upcoming events organized by user's accounts (auto-populated)
+  let allPastEvents = []; // FetLife past events organized by user's accounts (cached; manual refresh)
   let accountColorMap = {};
   const ACCOUNT_PALETTE = [
     { color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
@@ -669,7 +730,7 @@
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
-  const viewTitles = { dashboard: 'Marketing Calendar', compose: 'New Post', multipost: 'Multi-Post', grouppost: 'Group Cross-Post', queue: 'Post Queue', history: 'History', accounts: 'Accounts' };
+  const viewTitles = { dashboard: 'Marketing Calendar', compose: 'New Post', multipost: 'Multi-Post', grouppost: 'Group Cross-Post', queue: 'Post Queue', history: 'History', accounts: 'Accounts', insights: 'Event Insights' };
   function showView(name) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -683,9 +744,10 @@
     if (name === 'multipost') mpLoadAccountPills();
     if (name === 'grouppost') gpLoadAccounts();
     if (name === 'dashboard') loadDashboard();
+    if (name === 'insights') initInsightsView();
   }
 
-  async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); loadDashboard(); canvaRefreshStatus(); }
+  async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); await loadAllPastEvents(); loadDashboard(); canvaRefreshStatus(); }
 
   async function loadAllOrganizedEvents() {
     allOrganizedEvents = [];
@@ -698,6 +760,30 @@
       } catch { /* ignore per-account failures */ }
     }
     if (typeof calRender === 'function') calRender();
+  }
+
+  async function loadAllPastEvents() {
+    allPastEvents = [];
+    const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    for (const a of fetlifeAccounts) {
+      try {
+        const data = await api('GET', '/api/fetlife/' + encodeURIComponent(a.accountId) + '/events/past');
+        const events = (data.events || []).map(e => Object.assign({}, e, { accountId: a.accountId, groupName: a.groupName || a.accountId, _past: true }));
+        allPastEvents.push(...events);
+      } catch { /* ignore per-account failures */ }
+    }
+  }
+
+  async function refreshPastEventsForAccount(accountId) {
+    try {
+      await api('POST', '/api/fetlife/' + encodeURIComponent(accountId) + '/events/past/refresh');
+      await loadAllPastEvents();
+      showToast('Past events refreshed for ' + accountId, 'success');
+      return true;
+    } catch (err) {
+      showToast('Refresh failed: ' + (err.message || 'unknown'), 'error');
+      return false;
+    }
   }
 
   async function loadAccounts() {
@@ -855,6 +941,437 @@
         showToast(data.error || 'Retry failed', 'error');
       }
     } catch (err) { showToast('Retry failed: ' + (err.message || 'unknown'), 'error'); }
+  }
+
+  // ── Event Insights ─────────────────────────────────────────────────────────
+
+  let insightsAccount = null;
+
+  function initInsightsView() {
+    const select = document.getElementById('insights-account');
+    const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    select.innerHTML = fetlifeAccounts.map(a => '<option value="' + escAttr(a.accountId) + '">' + escHtml(a.groupName || a.accountId) + '</option>').join('');
+    if (!insightsAccount && fetlifeAccounts.length) insightsAccount = fetlifeAccounts[0].accountId;
+    if (insightsAccount) { select.value = insightsAccount; loadInsights(); }
+    else document.getElementById('insights-content').innerHTML = '<div class="empty-state"><p>Add a FetLife account first.</p></div>';
+  }
+
+  async function loadInsights() {
+    insightsAccount = document.getElementById('insights-account').value;
+    const content = document.getElementById('insights-content');
+    content.innerHTML = '<div class="loading">Loading insights…</div>';
+    try {
+      const [insights, tracked] = await Promise.all([
+        api('GET', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/insights'),
+        api('GET', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked'),
+      ]);
+      renderInsights(insights, tracked);
+    } catch (err) {
+      content.innerHTML = '<div class="empty-state"><p>Failed to load: ' + escHtml(err.message || 'unknown') + '</p></div>';
+    }
+  }
+
+  function openTrackedPasteModal() {
+    document.getElementById('tracked-paste-textarea').value = '';
+    document.getElementById('tracked-paste-feedback').textContent = '';
+    document.getElementById('tracked-paste-modal').classList.remove('hidden');
+  }
+  function closeTrackedPasteModal() { document.getElementById('tracked-paste-modal').classList.add('hidden'); }
+
+  async function submitTrackedPaste() {
+    const text = document.getElementById('tracked-paste-textarea').value.trim();
+    const urls = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (urls.length === 0) { document.getElementById('tracked-paste-feedback').textContent = 'No URLs entered.'; return; }
+    document.getElementById('tracked-paste-feedback').textContent = 'Adding ' + urls.length + ' URL(s)…';
+    try {
+      const r = await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked', { urls });
+      document.getElementById('tracked-paste-feedback').innerHTML = '<span style="color:#5fa">Added ' + r.added + ', skipped ' + r.skipped + ' (' + r.total + ' total tracked)</span>';
+      setTimeout(() => { closeTrackedPasteModal(); loadInsights(); }, 1500);
+    } catch (err) {
+      document.getElementById('tracked-paste-feedback').textContent = 'Failed: ' + (err.message || 'unknown');
+    }
+  }
+
+  let trackedPickerState = { events: [], alreadyTracked: new Set(), selected: new Set() };
+
+  async function openTrackedPickerModal() {
+    if (!insightsAccount) return;
+    document.getElementById('tracked-picker-modal').classList.remove('hidden');
+    document.getElementById('tracked-picker-list').innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center">Loading…</div>';
+    document.getElementById('tracked-picker-status').textContent = '';
+    document.getElementById('tracked-picker-feedback').textContent = '';
+    await loadTrackedPickerEvents();
+  }
+
+  function closeTrackedPickerModal() { document.getElementById('tracked-picker-modal').classList.add('hidden'); }
+
+  async function loadTrackedPickerEvents() {
+    try {
+      const [past, tracked] = await Promise.all([
+        api('GET', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/past'),
+        api('GET', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked'),
+      ]);
+      const events = (past.events || []).slice().sort((a, b) => (b.urlDate || '').localeCompare(a.urlDate || ''));
+      const alreadyTracked = new Set((tracked.events || []).map(t => t.url));
+      // Pre-select events that aren't already tracked (so "Add selected" means "add all new ones")
+      const selected = new Set();
+      for (const e of events) {
+        if (!alreadyTracked.has(e.url)) selected.add(e.url);
+      }
+      trackedPickerState = { events, alreadyTracked, selected };
+      renderTrackedPicker();
+      const cacheNote = past.fetchedAt
+        ? 'Cached from ' + new Date(past.fetchedAt).toLocaleString()
+        : 'Not yet scraped — click Re-scrape to populate';
+      document.getElementById('tracked-picker-status').textContent = cacheNote;
+    } catch (err) {
+      document.getElementById('tracked-picker-list').innerHTML = '<div style="color:#f88;padding:20px">Failed to load: ' + escHtml(err.message || 'unknown') + '</div>';
+    }
+  }
+
+  function renderTrackedPicker() {
+    const list = document.getElementById('tracked-picker-list');
+    const { events, alreadyTracked, selected } = trackedPickerState;
+    if (events.length === 0) {
+      list.innerHTML = '<div style="color:var(--text2);padding:20px;text-align:center">No past events scraped yet — click "↻ Re-scrape from FetLife" to fetch them.</div>';
+      return;
+    }
+    const newCount = events.filter(e => !alreadyTracked.has(e.url)).length;
+    list.innerHTML = '<div style="font-size:11px;color:var(--text2);margin-bottom:8px">' + events.length + ' event(s) found · ' + newCount + ' not yet tracked · ' + selected.size + ' selected</div>' +
+      events.map(e => {
+        const isTracked = alreadyTracked.has(e.url);
+        const isSelected = selected.has(e.url);
+        return '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer' + (isTracked ? ';opacity:0.5' : '') + '">' +
+          '<input type="checkbox" ' + (isSelected ? 'checked' : '') + ' ' + (isTracked ? 'disabled' : '') + ' onchange="trackedPickerToggle(\'' + escAttr(e.url) + '\', this.checked)">' +
+          '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text2);min-width:90px">' + escHtml(e.urlDate || '') + '</span>' +
+          '<span style="font-size:13px;color:var(--text0);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(e.title || 'Untitled') + '</span>' +
+          (isTracked ? '<span style="font-size:9px;background:rgba(96,96,112,0.25);color:var(--text2);padding:1px 6px;border-radius:8px;text-transform:uppercase;font-weight:600">tracked</span>' : '') +
+        '</label>';
+      }).join('');
+  }
+
+  function trackedPickerToggle(url, checked) {
+    if (checked) trackedPickerState.selected.add(url);
+    else trackedPickerState.selected.delete(url);
+    // Re-render only the header line; for simplicity just re-render whole list (cheap)
+    renderTrackedPicker();
+  }
+
+  function trackedPickerSelectAll() {
+    for (const e of trackedPickerState.events) {
+      if (!trackedPickerState.alreadyTracked.has(e.url)) trackedPickerState.selected.add(e.url);
+    }
+    renderTrackedPicker();
+  }
+
+  function trackedPickerDeselectAll() {
+    trackedPickerState.selected.clear();
+    renderTrackedPicker();
+  }
+
+  async function trackedPickerRescrape() {
+    document.getElementById('tracked-picker-status').textContent = 'Scraping FetLife (~30s)…';
+    try {
+      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/past/refresh');
+      await loadTrackedPickerEvents();
+    } catch (err) {
+      document.getElementById('tracked-picker-status').textContent = 'Scrape failed: ' + (err.message || 'unknown');
+    }
+  }
+
+  async function submitTrackedPicker() {
+    const urls = [...trackedPickerState.selected];
+    if (urls.length === 0) {
+      document.getElementById('tracked-picker-feedback').textContent = 'Nothing selected.';
+      return;
+    }
+    document.getElementById('tracked-picker-feedback').textContent = 'Adding ' + urls.length + ' event(s)…';
+    try {
+      const r = await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked', { urls });
+      document.getElementById('tracked-picker-feedback').innerHTML = '<span style="color:#5fa">Added ' + r.added + ', skipped ' + r.skipped + ' (' + r.total + ' total tracked)</span>';
+      setTimeout(() => { closeTrackedPickerModal(); loadInsights(); }, 1500);
+    } catch (err) {
+      document.getElementById('tracked-picker-feedback').textContent = 'Failed: ' + (err.message || 'unknown');
+    }
+  }
+
+  async function refreshAllTrackedRsvps() {
+    if (!insightsAccount) return;
+    try {
+      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked/refresh-all');
+      showToast('Tracked RSVPs refresh started in background — check fetlife-poster.log for progress', 'success');
+    } catch (err) {
+      showToast('Failed to start refresh: ' + (err.message || 'unknown'), 'error');
+    }
+  }
+
+  async function removeTrackedEvent(url) {
+    if (!confirm('Stop tracking this event?')) return;
+    try {
+      await api('DELETE', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked', { url });
+      showToast('Event untracked', 'success');
+      loadInsights();
+    } catch (err) {
+      showToast('Failed: ' + (err.message || 'unknown'), 'error');
+    }
+  }
+
+  async function refreshInsightsUpcomingOnly() {
+    if (!insightsAccount) return;
+    document.getElementById('insights-content').innerHTML = '<div class="loading">Re-scraping upcoming events…</div>';
+    try {
+      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/refresh');
+      await loadAllOrganizedEvents();
+      showToast('Upcoming events refreshed', 'success');
+      loadInsights();
+    } catch (err) {
+      document.getElementById('insights-content').innerHTML = '<div class="empty-state"><p>Refresh failed: ' + escHtml(err.message || 'unknown') + '</p></div>';
+    }
+  }
+
+  async function refreshInsightsAccount() {
+    if (!insightsAccount) return;
+    document.getElementById('insights-content').innerHTML = '<div class="loading">Re-scraping upcoming + past events from FetLife (this is the slow one)…</div>';
+    try {
+      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/refresh');
+      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/past/refresh');
+      await loadAllOrganizedEvents();
+      await loadAllPastEvents();
+      showToast('Events refreshed (upcoming + past)', 'success');
+      loadInsights();
+    } catch (err) {
+      document.getElementById('insights-content').innerHTML = '<div class="empty-state"><p>Refresh failed: ' + escHtml(err.message || 'unknown') + '</p></div>';
+    }
+  }
+
+  function snapTotal(snap) {
+    if (!snap) return null;
+    return snap.total ?? ((snap.going ?? 0) + (snap.curious ?? 0) + (snap.maybe ?? 0));
+  }
+
+  function renderTrackedCard(tracked) {
+    const list = (tracked && tracked.events) || [];
+    return '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">' +
+        '<div>' +
+          '<div style="font-weight:600;font-size:14px;color:var(--text0)">📌 Tracked events (' + list.length + ')</div>' +
+          '<div style="font-size:12px;color:var(--text2);margin-top:2px">Manually-pasted + auto-tracked from Group Cross-Post. RSVPs scraped on demand or via cron.</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<button class="btn btn-sm" onclick="openTrackedPickerModal()">+ Pick from FetLife</button>' +
+          '<button class="btn btn-sm" onclick="openTrackedPasteModal()">+ Paste URLs</button>' +
+          '<button class="btn btn-sm btn-accent" onclick="refreshAllTrackedRsvps()"' + (list.length === 0 ? ' disabled' : '') + '>↻ Refresh all RSVPs</button>' +
+        '</div>' +
+      '</div>' +
+      (list.length > 0
+        ? '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">Show tracked URLs</summary>' +
+          '<div style="max-height:200px;overflow-y:auto;margin-top:8px;font-family:var(--font-mono);font-size:11px">' +
+            list.map(t => '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">' +
+              '<a href="' + escAttr(t.url) + '" target="_blank" style="color:var(--text1);text-decoration:none;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(t.url.replace('https://fetlife.com', '')) + '</a>' +
+              '<span style="color:var(--text2)">' + escHtml(t.source || 'manual') + '</span>' +
+              '<button class="btn btn-sm btn-danger" style="font-size:10px;padding:1px 6px" onclick="removeTrackedEvent(\'' + escAttr(t.url) + '\')">×</button>' +
+            '</div>').join('') +
+          '</div></details>'
+        : '') +
+    '</div>';
+  }
+
+  function renderInsights(data, trackedData) {
+    const events = data.events || [];
+    const content = document.getElementById('insights-content');
+    const trackedCard = renderTrackedCard(trackedData);
+    if (events.length === 0) {
+      content.innerHTML = trackedCard + '<div class="empty-state"><p>No events found for this account.</p><p style="font-size:12px;color:var(--text2);margin-top:6px">Click ↻ Refresh above to scrape upcoming + past events from FetLife, or paste URLs above to seed manually.</p></div>';
+      return;
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    // Group events by title (the "party series"). Exact match; users with consistent names get clean groupings.
+    const byTitle = new Map();
+    for (const e of events) {
+      const t = (e.title || 'Untitled').trim();
+      if (!byTitle.has(t)) byTitle.set(t, []);
+      byTitle.get(t).push(e);
+    }
+
+    const parties = [...byTitle.entries()].map(([title, evts]) => {
+      evts.sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+      const ytd = evts.filter(e => (e.urlDate || '').startsWith(currentYear + '-'));
+      const prior = evts.filter(e => !(e.urlDate || '').startsWith(currentYear + '-'));
+      return { title, evts, ytd, prior };
+    }).sort((a, b) => b.evts.length - a.evts.length);
+
+    // Overall summary stats
+    const allYtdScraped = events.filter(e => (e.urlDate || '').startsWith(currentYear + '-') && e.latestSnapshot);
+    const allYtdTotals = allYtdScraped.map(e => snapTotal(e.latestSnapshot));
+    const allYtdAvg = allYtdTotals.length ? Math.round(allYtdTotals.reduce((a, b) => a + b, 0) / allYtdTotals.length) : null;
+    const upcomingCount = events.filter(e => !e.isPast).length;
+    const pastCount = events.filter(e => e.isPast).length;
+    const pendingScrape = events.filter(e => e.isPast && !e.latestSnapshot).length;
+
+    const summaryCards = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:20px">' +
+      summaryCard('Party series', parties.length, parties.map(p => p.title).slice(0, 2).join(' · ') + (parties.length > 2 ? ' …' : '')) +
+      summaryCard('Total events', events.length, upcomingCount + ' upcoming · ' + pastCount + ' past') +
+      summaryCard(currentYear + ' YTD avg RSVPs', allYtdAvg ?? '—', allYtdScraped.length + ' event(s) with data') +
+      summaryCard('Pending RSVP scrape', pendingScrape, pendingScrape > 0 ? 'click events in Calendar to scrape' : 'all caught up') +
+    '</div>';
+
+    const partySections = parties.map(p => renderPartySection(p, currentYear)).join('');
+
+    content.innerHTML = trackedCard + summaryCards + partySections;
+  }
+
+  function renderPartySection(party, currentYear) {
+    const { title, ytd, prior } = party;
+    const ytdScraped = ytd.filter(e => e.latestSnapshot);
+    const ytdTotals = ytdScraped.map(e => snapTotal(e.latestSnapshot));
+    const ytdAvg = ytdTotals.length ? Math.round(ytdTotals.reduce((a, b) => a + b, 0) / ytdTotals.length) : null;
+
+    // Bucket prior years; aggregate each
+    const priorByYear = new Map();
+    for (const e of prior) {
+      const y = (e.urlDate || '').slice(0, 4);
+      if (!y) continue;
+      if (!priorByYear.has(y)) priorByYear.set(y, []);
+      priorByYear.get(y).push(e);
+    }
+    const priorYearRows = [...priorByYear.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([year, evts]) => {
+      const scraped = evts.filter(e => e.latestSnapshot);
+      const totals = scraped.map(e => snapTotal(e.latestSnapshot));
+      const avg = totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : null;
+      const max = totals.length ? Math.max(...totals) : null;
+      const min = totals.length ? Math.min(...totals) : null;
+      return '<tr style="border-top:1px solid var(--border)">' +
+        '<td style="padding:6px 10px;color:var(--text1);font-weight:500">' + escHtml(year) + '</td>' +
+        '<td style="padding:6px 10px;text-align:right">' + evts.length + '</td>' +
+        '<td style="padding:6px 10px;text-align:right;color:var(--text2)">' + (scraped.length) + ' scraped</td>' +
+        '<td style="padding:6px 10px;text-align:right;font-weight:600">' + (avg !== null ? avg : '—') + '</td>' +
+        '<td style="padding:6px 10px;text-align:right;color:var(--text2)">' + (min !== null ? min + '–' + max : '—') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    const ytdRows = ytd.map(e => {
+      const snap = e.latestSnapshot;
+      const total = snapTotal(snap);
+      const going = snap ? (snap.going ?? 0) : null;
+      const curious = snap ? (snap.curious ?? 0) : null;
+      let vsAvg = '—';
+      if (total !== null && ytdAvg !== null && ytdAvg > 0) {
+        const pct = Math.round(((total - ytdAvg) / ytdAvg) * 100);
+        const color = pct > 0 ? '#5fa' : pct < 0 ? '#f88' : 'var(--text2)';
+        vsAvg = '<span style="color:' + color + '">' + (pct >= 0 ? '+' : '') + pct + '%</span>';
+      }
+      const badge = e.isPast
+        ? '<span style="background:rgba(96,96,112,0.25);color:var(--text2);font-size:9px;padding:1px 5px;border-radius:8px;text-transform:uppercase;font-weight:600;margin-left:6px">past</span>'
+        : '<span style="background:rgba(16,185,129,0.18);color:#10b981;font-size:9px;padding:1px 5px;border-radius:8px;text-transform:uppercase;font-weight:600;margin-left:6px">upcoming</span>';
+      return '<tr style="border-top:1px solid var(--border)">' +
+        '<td style="padding:6px 10px;font-family:var(--font-mono);font-size:12px;color:var(--text2)">' + escHtml(e.urlDate || '') + '</td>' +
+        '<td style="padding:6px 10px"><a href="' + escAttr(e.url) + '" target="_blank" style="color:var(--text1);text-decoration:none">' + escHtml(e.title || 'Untitled') + '</a>' + badge + '</td>' +
+        '<td style="padding:6px 10px;text-align:right">' + (going !== null ? going : '—') + '</td>' +
+        '<td style="padding:6px 10px;text-align:right">' + (curious !== null ? curious : '—') + '</td>' +
+        '<td style="padding:6px 10px;text-align:right;font-weight:600">' + (total !== null ? total : '—') + '</td>' +
+        '<td style="padding:6px 10px;text-align:right">' + vsAvg + '</td>' +
+      '</tr>';
+    }).join('');
+
+    const ytdHeader = '<thead style="background:var(--bg2);text-align:left;font-size:11px;text-transform:uppercase;color:var(--text2)"><tr>' +
+      '<th style="padding:8px 10px">Date</th>' +
+      '<th style="padding:8px 10px">Event</th>' +
+      '<th style="padding:8px 10px;text-align:right">Going</th>' +
+      '<th style="padding:8px 10px;text-align:right">Interested</th>' +
+      '<th style="padding:8px 10px;text-align:right">Total</th>' +
+      '<th style="padding:8px 10px;text-align:right">vs YTD avg</th>' +
+    '</tr></thead>';
+    const priorHeader = '<thead style="background:var(--bg2);text-align:left;font-size:11px;text-transform:uppercase;color:var(--text2)"><tr>' +
+      '<th style="padding:8px 10px">Year</th>' +
+      '<th style="padding:8px 10px;text-align:right">Events</th>' +
+      '<th style="padding:8px 10px;text-align:right">Scraped</th>' +
+      '<th style="padding:8px 10px;text-align:right">Avg RSVPs</th>' +
+      '<th style="padding:8px 10px;text-align:right">Range</th>' +
+    '</tr></thead>';
+
+    return '<section style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:16px 18px;margin-bottom:18px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">' +
+        '<h3 style="margin:0;font-size:16px;color:var(--text0)">' + escHtml(title) + '</h3>' +
+        '<div style="font-size:12px;color:var(--text2)">' + currentYear + ' YTD avg: <b style="color:var(--text0)">' + (ytdAvg !== null ? ytdAvg + ' RSVPs' : 'no data yet') + '</b> · ' + ytd.length + ' event(s)</div>' +
+      '</div>' +
+      (ytd.length > 0
+        ? '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">' + ytdHeader + '<tbody>' + ytdRows + '</tbody></table>'
+        : '<div style="color:var(--text2);font-size:12px;padding:10px 0">No events in ' + currentYear + '.</div>') +
+      (priorYearRows
+        ? '<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">Previous years</div>' +
+          '<table style="width:100%;border-collapse:collapse;font-size:13px">' + priorHeader + '<tbody>' + priorYearRows + '</tbody></table>'
+        : '') +
+    '</section>';
+  }
+
+  function summaryCard(label, value, sub) {
+    return '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:14px 16px">' +
+      '<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em">' + escHtml(label) + '</div>' +
+      '<div style="font-size:24px;color:var(--text0);font-weight:600;margin-top:4px">' + escHtml(String(value)) + '</div>' +
+      '<div style="font-size:11px;color:var(--text2);margin-top:2px">' + escHtml(sub || '') + '</div>' +
+    '</div>';
+  }
+
+  function renderInsightsChart(events) {
+    const withData = events.filter(e => e.latestSnapshot).slice().sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+    if (withData.length === 0) {
+      return '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:30px;text-align:center;color:var(--text2);margin-bottom:20px">No RSVP snapshots yet — click an event in the calendar and hit Refresh RSVPs to populate data.</div>';
+    }
+    const max = Math.max(...withData.map(e => e.latestSnapshot.total ?? 0));
+    const w = 800;
+    const h = 180;
+    const barW = Math.max(8, Math.min(40, Math.floor((w - 60) / withData.length) - 4));
+    const gap = 4;
+    const padL = 40;
+    const padB = 28;
+    const chartH = h - padB - 10;
+    const bars = withData.map((e, i) => {
+      const total = e.latestSnapshot.total ?? 0;
+      const bh = max > 0 ? (total / max) * chartH : 0;
+      const x = padL + i * (barW + gap);
+      const y = chartH - bh + 10;
+      const color = e.isPast ? '#6b7280' : '#10b981';
+      const dateLabel = (e.urlDate || '').slice(5); // MM-DD
+      return '<g><rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + bh + '" fill="' + color + '" rx="2"><title>' + escAttr(e.title || '') + '\n' + escAttr(e.urlDate || '') + '\nTotal: ' + total + '</title></rect>' +
+        '<text x="' + (x + barW/2) + '" y="' + (chartH + 22) + '" font-size="9" fill="#888" text-anchor="middle" transform="rotate(-45 ' + (x + barW/2) + ' ' + (chartH + 22) + ')">' + dateLabel + '</text></g>';
+    }).join('');
+    // Y-axis labels
+    const yLabels = [0, Math.round(max/2), max].map((v, i) => {
+      const y = chartH - (v / max) * chartH + 14;
+      return '<text x="' + (padL - 6) + '" y="' + y + '" font-size="10" fill="#888" text-anchor="end">' + v + '</text>';
+    }).join('');
+    return '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:20px">' +
+      '<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Total RSVPs by event (chronological)</div>' +
+      '<svg width="100%" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">' + yLabels + bars + '</svg>' +
+      '<div style="font-size:11px;color:var(--text2);text-align:center;margin-top:4px"><span style="color:#10b981">■</span> upcoming &nbsp; <span style="color:#6b7280">■</span> past</div>' +
+    '</div>';
+  }
+
+  function insightsRow(e, avg) {
+    const snap = e.latestSnapshot;
+    const total = snap ? (snap.total ?? ((snap.going ?? 0) + (snap.curious ?? 0))) : null;
+    const going = snap ? (snap.going ?? 0) : null;
+    const curious = snap ? (snap.curious ?? 0) : null;
+    let vsAvg = '—';
+    if (snap && avg > 0) {
+      const diff = total - avg;
+      const pct = Math.round((diff / avg) * 100);
+      const color = pct > 0 ? '#5fa' : pct < 0 ? '#f88' : 'var(--text2)';
+      vsAvg = '<span style="color:' + color + ';font-weight:500">' + (pct >= 0 ? '+' : '') + pct + '%</span>';
+    }
+    const badge = e.isPast
+      ? '<span style="background:rgba(96,96,112,0.25);color:var(--text2);font-size:9px;padding:1px 5px;border-radius:8px;text-transform:uppercase;font-weight:600;margin-left:6px">past</span>'
+      : '<span style="background:rgba(16,185,129,0.18);color:#10b981;font-size:9px;padding:1px 5px;border-radius:8px;text-transform:uppercase;font-weight:600;margin-left:6px">upcoming</span>';
+    return '<tr style="border-top:1px solid var(--border)">' +
+      '<td style="padding:8px 10px"><a href="' + escAttr(e.url) + '" target="_blank" style="color:var(--text1);text-decoration:none">' + escHtml(e.title || 'Untitled') + '</a>' + badge + '</td>' +
+      '<td style="padding:8px 10px;color:var(--text2);font-family:var(--font-mono);font-size:12px">' + escHtml(e.urlDate || '') + '</td>' +
+      '<td style="padding:8px 10px;text-align:right">' + (going !== null ? going : '—') + '</td>' +
+      '<td style="padding:8px 10px;text-align:right">' + (curious !== null ? curious : '—') + '</td>' +
+      '<td style="padding:8px 10px;text-align:right;font-weight:600">' + (total !== null ? total : '—') + '</td>' +
+      '<td style="padding:8px 10px;text-align:right">' + vsAvg + '</td>' +
+    '</tr>';
   }
 
   async function loadHistory() {
@@ -1567,13 +2084,58 @@
 
   window.calClosePanel = function () { document.getElementById('cal-side').classList.remove('open'); };
 
+  function extractDateFromEventUrl(url) {
+    const m = (url || '').match(/\/events\/(\d{4})\/(\d{2})\/(\d{2})\//);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+  }
+
+  function pastEventsFromQueueFor(accountId) {
+    // Derive past events the user has cross-posted for — sent group_event jobs carry the eventUrl.
+    const seen = new Set();
+    const out = [];
+    for (const p of (allPosts || [])) {
+      if (p.postType !== 'group_event' || p.status !== 'sent' || !p.eventUrl) continue;
+      if (p.accountId !== accountId) continue;
+      if (seen.has(p.eventUrl)) continue;
+      seen.add(p.eventUrl);
+      out.push({
+        url: p.eventUrl,
+        title: p.title || 'Untitled event',
+        urlDate: extractDateFromEventUrl(p.eventUrl),
+        accountId: p.accountId,
+        _past: true,
+      });
+    }
+    return out;
+  }
+
   window.calOpenEvent = async function (eventUrl) {
-    const event = (allOrganizedEvents || []).find(e => e.url === eventUrl);
-    if (!event) return;
+    let event = (allOrganizedEvents || []).find(e => e.url === eventUrl)
+            || (allPastEvents || []).find(e => e.url === eventUrl);
+    if (!event) {
+      // Fallback: synthesize from queue history if it's a past cross-post we have no FetLife data for.
+      const fromQueue = (allAccounts || [])
+        .filter(a => a.platform === 'fetlife')
+        .flatMap(a => pastEventsFromQueueFor(a.accountId));
+      event = fromQueue.find(e => e.url === eventUrl);
+      if (!event) return;
+    }
     const c = colorForAccount(event.accountId);
-    const peers = (allOrganizedEvents || [])
-      .filter(e => e.accountId === event.accountId && e.url !== event.url)
-      .sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+    // Merge upcoming + past organized events from FetLife + past events derived from queue history.
+    const todayKey = calDayKey(new Date());
+    const upcoming = (allOrganizedEvents || [])
+      .filter(e => e.accountId === event.accountId && e.url !== event.url);
+    const pastFromFL = (allPastEvents || [])
+      .filter(e => e.accountId === event.accountId && e.url !== event.url);
+    const pastFromQueue = pastEventsFromQueueFor(event.accountId)
+      .filter(e => e.url !== event.url);
+    // Dedupe — FetLife data wins over queue-derived data when both are present.
+    const byUrl = new Map();
+    for (const p of pastFromQueue) byUrl.set(p.url, p);
+    for (const p of pastFromFL) byUrl.set(p.url, p);
+    for (const p of upcoming) byUrl.set(p.url, p);
+    const peers = [...byUrl.values()]
+      .sort((a, b) => (b.urlDate || '').localeCompare(a.urlDate || '')); // newest first
 
     document.getElementById('cal-side-body').innerHTML =
       '<h3>📅 ' + escHtml(event.title || 'Untitled event') + '</h3>' +
@@ -1587,13 +2149,24 @@
       '<div class="compose-label" style="font-size:11px;margin-top:14px">RSVP Health</div>' +
       '<div id="cal-metrics-display" style="font-size:12px;color:var(--text2);margin-bottom:6px">Click below to fetch latest counts.</div>' +
       '<button class="btn btn-sm" id="cal-metrics-btn" onclick="calRefreshEventMetrics(\'' + escAttr(event.accountId) + '\',\'' + escAttr(event.url) + '\')">Refresh RSVPs</button>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;margin-bottom:6px">' +
+        '<div class="compose-label" style="font-size:11px;margin:0">Other events from ' + escHtml(event.groupName || event.accountId) + ' (' + peers.length + ')</div>' +
+        '<button class="btn btn-sm" style="font-size:11px" onclick="calRefreshPastEvents(\'' + escAttr(event.accountId) + '\',\'' + escAttr(event.url) + '\')">↻ Refresh past events</button>' +
+      '</div>' +
       (peers.length > 0
-        ? '<div class="compose-label" style="font-size:11px;margin-top:18px">Other events from ' + escHtml(event.groupName || event.accountId) + '</div>' +
-          '<div id="cal-peer-events" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto">' +
+        ? '' +
+          '<div id="cal-peer-events" style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto">' +
             peers.map(p => {
               const pid = eventIdFromUrl(p.url);
+              const isPast = p._past || (p.urlDate && p.urlDate < todayKey);
+              const badge = isPast
+                ? '<span style="background:rgba(96,96,112,0.25);color:var(--text2);font-size:9px;padding:1px 5px;border-radius:8px;text-transform:uppercase;font-weight:600">past</span>'
+                : '<span style="background:' + c.bg + ';color:' + c.color + ';font-size:9px;padding:1px 5px;border-radius:8px;text-transform:uppercase;font-weight:600">upcoming</span>';
               return '<div class="peer-event" data-peerid="' + escAttr(pid) + '" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;cursor:pointer" onclick="calOpenEvent(\'' + escAttr(p.url) + '\')">' +
-                '<div style="font-size:12px;color:var(--text0);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(p.title || 'Untitled') + '</div>' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">' +
+                  '<div style="font-size:12px;color:var(--text0);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + escHtml(p.title || 'Untitled') + '</div>' +
+                  badge +
+                '</div>' +
                 '<div style="font-size:10px;color:var(--text2);margin-top:2px">' + escHtml(p.dateText || p.urlDate || '') + '</div>' +
                 '<div class="peer-rsvp" style="font-size:11px;color:var(--text2);margin-top:4px">RSVPs: <span class="peer-rsvp-data">loading...</span></div>' +
               '</div>';
@@ -1657,6 +2230,15 @@
       display.innerHTML = renderMetricSnapshot(latest) + trend;
     } catch {}
   }
+
+  window.calRefreshPastEvents = async function (accountId, currentEventUrl) {
+    if (!confirm('Scrape ' + accountId + "'s past organized events from FetLife? This may open Chrome on the Droplet's VNC desktop for ~30s.")) return;
+    const ok = await refreshPastEventsForAccount(accountId);
+    if (ok) {
+      // Re-render sidebar with the freshly loaded past events.
+      calOpenEvent(currentEventUrl);
+    }
+  };
 
   async function calRefreshEventMetrics(accountId, eventUrl) {
     const btn = document.getElementById('cal-metrics-btn');
