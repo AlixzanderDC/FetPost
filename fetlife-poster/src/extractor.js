@@ -259,7 +259,7 @@ export async function getCookiesForAccount(accountId) {
     // Check if cookies are expired
     const now = Date.now() / 1000;
     const sessionCookie = cookies.find(c => c.name === '_fl_sessionid' || c.name === '_session_id' || c.name === 'remember_user_token');
-    if (sessionCookie && sessionCookie.expires && sessionCookie.expires < now) {
+    if (sessionCookie && sessionCookie.expires > 0 && sessionCookie.expires < now) {
       console.log(`[extractor] Cookies expired for ${accountId}, need refresh`);
       return null;
     }
