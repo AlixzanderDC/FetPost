@@ -790,7 +790,7 @@ https://fetlife.com/events/.../..."></textarea>
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.getElementById('view-' + name).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(n => { if (n.getAttribute('onclick') && n.getAttribute('onclick').includes(name)) n.classList.add('active'); });
+    document.querySelectorAll('.nav-item').forEach(n => { if (n.getAttribute('onclick') && n.getAttribute('onclick').includes("'" + name + "'")) n.classList.add('active'); });
     document.getElementById('topbar-title').textContent = viewTitles[name] || name;
     if (name === 'queue') loadQueue();
     if (name === 'history') loadHistory();
