@@ -298,6 +298,13 @@
     </div>
     <div class="content">
 
+      <div id="cookie-alert" style="display:none; margin-bottom:14px; padding:12px 16px; background:#3a1a1a; border:1px solid #6b2b2b; border-radius:6px; color:#f4c2c2; font-size:13px;">
+        <strong>Cookie refresh needs attention.</strong>
+        <span id="cookie-alert-detail"></span>
+        VNC into the Droplet (DISPLAY :1) and run <code>node fetlife-poster/src/setup-cookies.js</code> to log back in.
+        <button onclick="document.getElementById('cookie-alert').style.display='none'" style="float:right; background:none; border:none; color:#f4c2c2; cursor:pointer; font-size:16px;">×</button>
+      </div>
+
       <!-- Dashboard -->
       <div class="view active" id="view-dashboard">
         <div class="stats-grid">
@@ -803,7 +810,29 @@ https://fetlife.com/events/.../..."></textarea>
     if (name === 'insights') initInsightsView();
   }
 
-  async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); await loadAllPastEvents(); loadDashboard(); canvaRefreshStatus(); }
+  async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); await loadAllPastEvents(); loadDashboard(); canvaRefreshStatus(); loadCookieRefreshStatus(); }
+
+  async function loadCookieRefreshStatus() {
+    try {
+      const data = await api('GET', '/api/fetlife/cookies/refresh-status');
+      const alert = document.getElementById('cookie-alert');
+      const detail = document.getElementById('cookie-alert-detail');
+      if (!data || !data.ranAt) { alert.style.display = 'none'; return; }
+      const failed = data.failed || (data.fatal ? 1 : 0);
+      const staleMs = Date.now() - new Date(data.ranAt).getTime();
+      const staleDays = staleMs / (24 * 60 * 60 * 1000);
+      if (failed > 0) {
+        const accts = (data.results || []).filter(r => !r.success).map(r => r.accountId).join(', ');
+        detail.textContent = ' Last run ' + new Date(data.ranAt).toLocaleString() + ' failed for: ' + (accts || '(fatal)') + '. ';
+        alert.style.display = 'block';
+      } else if (staleDays > 3) {
+        detail.textContent = ' Last successful refresh was ' + Math.floor(staleDays) + ' days ago — cron may not be firing. ';
+        alert.style.display = 'block';
+      } else {
+        alert.style.display = 'none';
+      }
+    } catch { /* fail quiet */ }
+  }
 
   async function loadAllOrganizedEvents() {
     allOrganizedEvents = [];

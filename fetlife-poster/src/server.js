@@ -430,6 +430,25 @@ app.get('/metrics/event/:eventId', auth, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Cookie refresh status — most recent cron run result
+app.get('/cookies/refresh-status', auth, async (req, res) => {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const statusFile = path.join(__dirname, '..', 'data', 'cookies', '_refresh-status.json');
+    try {
+      const raw = await fs.readFile(statusFile, 'utf8');
+      res.json(JSON.parse(raw));
+    } catch {
+      res.json({ ranAt: null, succeeded: 0, failed: 0, results: [] });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Health check — no auth needed
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'fetlife-poster', version: '1.0.0' });

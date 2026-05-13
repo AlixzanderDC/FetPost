@@ -195,6 +195,13 @@ app.get('/api/canva/designs', requireAuth, async (req, res) => {
 
 // ── Engagement metrics proxy ────────────────────────────────────────────────
 
+app.get('/api/fetlife/cookies/refresh-status', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/cookies/refresh-status');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/fetlife/metrics/post/refresh', requireAuth, async (req, res) => {
   try {
     const result = await proxyRequest('fetlife', 'POST', '/metrics/post/refresh', req.body);
