@@ -913,6 +913,11 @@ https://fetlife.com/events/.../..."></textarea>
     const sentTime = post.sentAt ? new Date(post.sentAt).toLocaleString() : '';
     const cancelBtn = post.status === 'scheduled' ? '<button class="post-btn danger" onclick="cancelPost(\'' + post.platform + '\',\'' + post.postId + '\')">Cancel</button>' : '';
     const retryBtn = post.status === 'failed' ? '<button class="post-btn" onclick="retryPost(\'' + post.platform + '\',\'' + post.postId + '\')">Retry</button>' : '';
+    // Engagement tracking — only for sent posts with a captured permalink (group cross-posts + events).
+    const sentUrl = post.result && post.result.url ? post.result.url : null;
+    const trackBtn = (post.status === 'sent' && sentUrl)
+      ? '<button class="post-btn" title="Track loves / super loves / comments / views" onclick="trackPost(\'' + escAttr(post.accountId) + '\',\'' + escAttr(sentUrl) + '\',\'' + escAttr(post.postId) + '\',\'' + escAttr(sentTime) + '\')">📊 Track</button>'
+      : '';
     const imageHtml = (Array.isArray(post.images) && post.images.length)
       ? '<div class="post-images" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;align-items:center;">' + post.images.slice(0, 1).map(img => {
           if (!img) return '';
@@ -921,7 +926,7 @@ https://fetlife.com/events/.../..."></textarea>
           return '';
         }).join('') + (post.images.length > 1 ? '<span style="font-size:11px;color:var(--text2)">+' + (post.images.length - 1) + ' more</span>' : '') + '</div>'
       : '';
-    return '<div class="post-card"><div class="post-header"><span class="platform-badge ' + cfg.badgeClass + '">' + platformIcon(cfg) + ' ' + cfg.label + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-left:4px">' + escHtml(post.accountId) + '</span><span class="status-badge status-' + post.status + '" style="margin-left:auto">' + post.status + '</span></div><div class="post-body">' + escHtml(post.content || '') + '</div>' + imageHtml + '<div class="post-time">' + (post.status === 'sent' ? 'Sent ' + sentTime : 'Scheduled ' + time) + '</div><div class="post-actions">' + retryBtn + cancelBtn + '</div></div>';
+    return '<div class="post-card"><div class="post-header"><span class="platform-badge ' + cfg.badgeClass + '">' + platformIcon(cfg) + ' ' + cfg.label + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-left:4px">' + escHtml(post.accountId) + '</span><span class="status-badge status-' + post.status + '" style="margin-left:auto">' + post.status + '</span></div><div class="post-body">' + escHtml(post.content || '') + '</div>' + imageHtml + '<div class="post-time">' + (post.status === 'sent' ? 'Sent ' + sentTime : 'Scheduled ' + time) + '</div><div class="post-actions">' + retryBtn + trackBtn + cancelBtn + '</div></div>';
   }
 
   async function cancelPost(platform, postId) {
@@ -943,6 +948,21 @@ https://fetlife.com/events/.../..."></textarea>
     } catch (err) { showToast('Retry failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
+  async function trackPost(accountId, postUrl, postId, sentAt) {
+    try {
+      const r = await api('POST', '/api/fetlife/' + encodeURIComponent(accountId) + '/posts/tracked', {
+        urls: [postUrl], postId, sentAt,
+      });
+      if (r.added > 0) {
+        showToast('Tracking engagement for this post — visit Insights to see metrics', 'success');
+      } else if (r.skipped > 0 && r.invalidExamples && r.invalidExamples.length === 0) {
+        showToast('Already tracking this post', 'info');
+      } else {
+        showToast(r.error || 'Could not track', 'error');
+      }
+    } catch (err) { showToast('Track failed: ' + (err.message || 'unknown'), 'error'); }
+  }
+
   // ── Event Insights ─────────────────────────────────────────────────────────
 
   let insightsAccount = null;
@@ -961,11 +981,12 @@ https://fetlife.com/events/.../..."></textarea>
     const content = document.getElementById('insights-content');
     content.innerHTML = '<div class="loading">Loading insights…</div>';
     try {
-      const [insights, tracked] = await Promise.all([
+      const [insights, tracked, trackedPosts] = await Promise.all([
         api('GET', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/insights'),
         api('GET', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked'),
+        api('GET', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/posts/tracked'),
       ]);
-      renderInsights(insights, tracked);
+      renderInsights(insights, tracked, trackedPosts);
     } catch (err) {
       content.innerHTML = '<div class="empty-state"><p>Failed to load: ' + escHtml(err.message || 'unknown') + '</p></div>';
     }
@@ -1176,12 +1197,13 @@ https://fetlife.com/events/.../..."></textarea>
     '</div>';
   }
 
-  function renderInsights(data, trackedData) {
+  function renderInsights(data, trackedData, trackedPostsData) {
     const events = data.events || [];
     const content = document.getElementById('insights-content');
     const trackedCard = renderTrackedCard(trackedData);
+    const postsCard = renderTrackedPostsCard(trackedPostsData);
     if (events.length === 0) {
-      content.innerHTML = trackedCard + '<div class="empty-state"><p>No events found for this account.</p><p style="font-size:12px;color:var(--text2);margin-top:6px">Click ↻ Refresh above to scrape upcoming + past events from FetLife, or paste URLs above to seed manually.</p></div>';
+      content.innerHTML = trackedCard + postsCard + '<div class="empty-state"><p>No events found for this account.</p><p style="font-size:12px;color:var(--text2);margin-top:6px">Click ↻ Refresh above to scrape upcoming + past events from FetLife, or paste URLs above to seed manually.</p></div>';
       return;
     }
 
@@ -1219,7 +1241,70 @@ https://fetlife.com/events/.../..."></textarea>
 
     const partySections = parties.map(p => renderPartySection(p, currentYear)).join('');
 
-    content.innerHTML = trackedCard + summaryCards + partySections;
+    content.innerHTML = trackedCard + postsCard + summaryCards + partySections;
+  }
+
+  function renderTrackedPostsCard(tracked) {
+    const list = (tracked && tracked.posts) || [];
+    // Sort newest-first by sentAt → addedAt, so the freshest tracked post is at top.
+    const sorted = [...list].sort((a, b) => {
+      const ta = a.sentAt || a.addedAt || ''; const tb = b.sentAt || b.addedAt || '';
+      return tb.localeCompare(ta);
+    });
+    const rows = sorted.length === 0
+      ? '<div style="font-size:12px;color:var(--text2);padding:8px 4px">No tracked posts yet. From the Queue tab, find a sent group cross-post or event and click <strong>📊 Track</strong> to start collecting engagement.</div>'
+      : '<div style="overflow-x:auto;margin-top:6px"><table style="width:100%;font-size:12px;border-collapse:collapse">' +
+          '<thead><tr style="text-align:left;border-bottom:1px solid var(--border);color:var(--text2);font-family:var(--font-mono);font-size:11px">' +
+            '<th style="padding:6px 8px">Sent</th>' +
+            '<th style="padding:6px 8px">Post</th>' +
+            '<th style="padding:6px 8px;text-align:right">Loves</th>' +
+            '<th style="padding:6px 8px;text-align:right">Super</th>' +
+            '<th style="padding:6px 8px;text-align:right">Comments</th>' +
+            '<th style="padding:6px 8px;text-align:right">Views</th>' +
+            '<th style="padding:6px 8px"></th>' +
+          '</tr></thead><tbody>' +
+          sorted.map(p => {
+            const sent = p.sentAt ? new Date(p.sentAt).toLocaleString() : (p.addedAt ? new Date(p.addedAt).toLocaleDateString() : '—');
+            const snap = p.latestSnapshot || {};
+            return '<tr style="border-bottom:1px solid var(--border)">' +
+              '<td style="padding:6px 8px;color:var(--text2);font-family:var(--font-mono);font-size:11px;white-space:nowrap">' + escHtml(sent) + '</td>' +
+              '<td style="padding:6px 8px"><a href="' + escAttr(p.url) + '" target="_blank" style="color:var(--text1);text-decoration:none">' + escHtml(p.title || p.url.replace('https://fetlife.com', '')) + '</a></td>' +
+              '<td style="padding:6px 8px;text-align:right">' + (snap.loves ?? '—') + '</td>' +
+              '<td style="padding:6px 8px;text-align:right">' + (snap.superLoves ?? '—') + '</td>' +
+              '<td style="padding:6px 8px;text-align:right">' + (snap.comments ?? '—') + '</td>' +
+              '<td style="padding:6px 8px;text-align:right">' + (snap.views ?? '—') + '</td>' +
+              '<td style="padding:6px 8px;text-align:right"><button class="btn btn-sm btn-danger" style="font-size:10px;padding:1px 6px" onclick="removeTrackedPost(\'' + escAttr(p.url) + '\')">×</button></td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody></table></div>';
+    return '<div style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">' +
+        '<div>' +
+          '<div style="font-weight:600;font-size:14px;color:var(--text0)">📊 Tracked posts (' + list.length + ')</div>' +
+          '<div style="font-size:12px;color:var(--text2);margin-top:2px">Engagement snapshots for sent group cross-posts and events. Cron refreshes nightly; click ↻ for an on-demand pull.</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<button class="btn btn-sm btn-accent" onclick="refreshAllTrackedPosts()"' + (list.length === 0 ? ' disabled' : '') + '>↻ Refresh engagement</button>' +
+        '</div>' +
+      '</div>' +
+      rows +
+    '</div>';
+  }
+
+  async function removeTrackedPost(url) {
+    if (!confirm('Stop tracking engagement for this post?\n\n' + url)) return;
+    try {
+      await api('DELETE', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/posts/tracked', { url });
+      showToast('Removed from tracking', 'success');
+      loadInsights();
+    } catch (err) { showToast('Remove failed: ' + (err.message || 'unknown'), 'error'); }
+  }
+
+  async function refreshAllTrackedPosts() {
+    try {
+      showToast('Refresh started — this may take a minute per post (25–55s stagger). Reload Insights to see updates.', 'info');
+      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/posts/tracked/refresh-all');
+    } catch (err) { showToast('Refresh failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
   function renderPartySection(party, currentYear) {

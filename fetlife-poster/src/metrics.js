@@ -39,17 +39,27 @@ export async function scrapePostMetrics(accountId, postUrl) {
   if (!postUrl || !/^https?:\/\/fetlife\.com\//.test(postUrl)) {
     throw new Error('postUrl must be a fetlife.com URL');
   }
-  const { browser, context } = await launchWithCookies(accountId, { headless: true });
+  // Headed Chrome — FetLife's Cloudflare gates headless. Same lesson as the event scraper.
+  const { browser, context } = await launchWithCookies(accountId, { headless: false });
   try {
     const page = await context.newPage();
     await page.goto(postUrl, { waitUntil: 'domcontentloaded' });
     await waitOutCloudflare(page, 30000);
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(1500);
+    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(2500);
 
     if (page.url().includes('/sign_in') || page.url().includes('/login')) {
       throw new Error(`Not logged in for ${accountId} — refresh cookies`);
     }
+
+    // Debug text dump — same approach as the event scraper, makes selector tuning offline.
+    try {
+      const debugDir = path.join(__dirname, '..', 'data', 'metrics', 'debug-posts');
+      await fs.mkdir(debugDir, { recursive: true });
+      const debugFile = path.join(debugDir, safeKey(postUrl) + '.txt');
+      const text = await page.evaluate(() => document.body.innerText || '');
+      await fs.writeFile(debugFile, text, 'utf8');
+    } catch {}
 
     return await page.evaluate(() => {
       // Find counts via several strategies; FetLife's class names change but text patterns are durable.
@@ -60,29 +70,42 @@ export async function scrapePostMetrics(accountId, postUrl) {
         return m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
       };
 
-      // "12 loves" / "1,234 loves" / "1 love"
-      let loves = matchN(/(\d[\d,]*)\s+loves?\b/i);
+      // Counts (text-based, robust to class-name churn).
+      // FetLife labels: "12 loves", "3 super loves", "5 comments", "42 views" (or "viewed by 42")
+      let loves = matchN(/(\d[\d,]*)\s+loves?\b(?!\s*you)/i);          // exclude "loves you"
+      let superLoves = matchN(/(\d[\d,]*)\s+super\s+loves?\b/i);
       let comments = matchN(/(\d[\d,]*)\s+comments?\b/i);
+      let views = matchN(/(\d[\d,]*)\s+views?\b/i) ?? matchN(/viewed\s+by\s+(\d[\d,]*)/i);
 
-      // Fallback: data-testid scan
-      if (loves === null) {
-        const el = document.querySelector('[data-testid*="love" i]');
-        if (el) {
+      // Fallback: data-testid scan for each metric.
+      const scanTestid = (needle) => {
+        for (const el of document.querySelectorAll(`[data-testid*="${needle}" i]`)) {
           const m = (el.textContent || '').match(/(\d[\d,]*)/);
-          if (m) loves = parseInt(m[1].replace(/,/g, ''), 10);
+          if (m) return parseInt(m[1].replace(/,/g, ''), 10);
         }
+        return null;
+      };
+      if (loves === null) loves = scanTestid('love');
+      if (superLoves === null) superLoves = scanTestid('super');
+      if (comments === null) comments = scanTestid('comment');
+      if (views === null) views = scanTestid('view');
+
+      // "1 super love" embedded in the regular "loves" count can cause a double-count if the
+      // page renders them as a single string like "13 loves (1 super love)". Subtract super
+      // from total when both are present and total >= super.
+      if (loves !== null && superLoves !== null && loves >= superLoves
+          && /(\d[\d,]*)\s+loves?\s*\(.*?super/i.test(text)) {
+        loves = loves - superLoves;
       }
-      if (comments === null) {
-        const el = document.querySelector('[data-testid*="comment" i]');
-        if (el) {
-          const m = (el.textContent || '').match(/(\d[\d,]*)/);
-          if (m) comments = parseInt(m[1].replace(/,/g, ''), 10);
-        }
-      }
+
+      const title = document.querySelector('h1, h2, [data-testid*="title" i]')?.textContent?.trim() || null;
 
       return {
+        title,
         loves: loves ?? 0,
+        superLoves: superLoves ?? 0,
         comments: comments ?? 0,
+        views: views ?? null,                  // null = page didn't expose views (not all post types do)
         url: window.location.href,
       };
     });

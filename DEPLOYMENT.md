@@ -297,10 +297,11 @@ curl -s https://api.ipify.org && echo           # NordVPN exit IP, NOT your Drop
 
 ## 10. Cron jobs
 
-FetPost has two scripts that should run on a schedule:
+FetPost has three scripts that should run on a schedule:
 
 - `src/setup-cookies.js` — silent headless cookie refresh (every other night at 4 AM)
 - `src/refresh-tracked-rsvps.js` — refresh RSVP counts for tracked events (every night at 5 AM)
+- `src/refresh-tracked-posts.js` — refresh engagement (loves / super loves / comments / views) for tracked posts (every night at 6 AM)
 
 Install them via `crontab -e`, or build the file from short shell-variable-assembled lines (safer when SSH'd from Windows where long pasted lines get split):
 
@@ -312,6 +313,7 @@ E=--env-file=/root/fetpost/.env
 L=/root/fetpost/.logs
 echo "0 4 */2 * * cd $P && $N $E src/setup-cookies.js >> $L/cookie-refresh.log 2>&1" > $F
 echo "0 5 * * * cd $P && $N $E src/refresh-tracked-rsvps.js >> $L/tracked-rsvps.log 2>&1" >> $F
+echo "0 6 * * * cd $P && $N $E src/refresh-tracked-posts.js >> $L/tracked-posts.log 2>&1" >> $F
 crontab $F
 crontab -l | cat -A     # each line must end in $ with no mid-line $
 ```

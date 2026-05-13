@@ -20,6 +20,9 @@ import {
 import {
   listTrackedEvents, addTrackedEvents, removeTrackedEvent, refreshAllTrackedRsvps,
 } from './tracked-events.js';
+import {
+  listTrackedPosts, addTrackedPosts, removeTrackedPost, refreshAllTrackedPosts,
+} from './tracked-posts.js';
 
 const app = express();
 const PORT = 3747;
@@ -298,6 +301,48 @@ app.post('/accounts/:accountId/events/tracked/refresh-all', auth, async (req, re
   refreshAllTrackedRsvps(req.params.accountId)
     .then(r => console.log(`[tracked] Done for ${req.params.accountId}: ${r.processed}/${r.total} processed`))
     .catch(err => console.error(`[tracked] Refresh failed for ${req.params.accountId}:`, err.message));
+});
+
+// ── Tracked posts (engagement tracking for sent posts) ──────────────────────
+
+app.get('/accounts/:accountId/posts/tracked', auth, async (req, res) => {
+  try {
+    const posts = await listTrackedPosts(req.params.accountId);
+    // Attach the most recent snapshot per post so the UI can show current metrics in one shot.
+    const enriched = await Promise.all(posts.map(async p => {
+      const key = String(p.url).replace(/[^a-z0-9_-]/gi, '_').slice(0, 200);
+      const snaps = await readPostMetrics(key);
+      const latestSnapshot = snaps.length ? snaps[snaps.length - 1] : null;
+      return { ...p, latestSnapshot };
+    }));
+    res.json({ accountId: req.params.accountId, posts: enriched });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/accounts/:accountId/posts/tracked', auth, async (req, res) => {
+  const { urls, postId, title, sentAt } = req.body || {};
+  if (!Array.isArray(urls)) return res.status(400).json({ error: 'urls array required' });
+  try {
+    const result = await addTrackedPosts(req.params.accountId, urls, 'manual', { postId, title, sentAt });
+    res.json({ success: true, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/accounts/:accountId/posts/tracked', auth, async (req, res) => {
+  const { url } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'url required' });
+  try {
+    const result = await removeTrackedPost(req.params.accountId, url);
+    res.json({ success: true, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Long-running: return immediately, scrape in background.
+app.post('/accounts/:accountId/posts/tracked/refresh-all', auth, async (req, res) => {
+  res.json({ success: true, message: 'Refresh started in background — check fetlife-poster.log for progress' });
+  refreshAllTrackedPosts(req.params.accountId)
+    .then(r => console.log(`[tracked-posts] Done for ${req.params.accountId}: ${r.processed}/${r.total} processed`))
+    .catch(err => console.error(`[tracked-posts] Refresh failed for ${req.params.accountId}:`, err.message));
 });
 
 app.get('/accounts/:accountId/events/past', auth, async (req, res) => {
