@@ -38,6 +38,9 @@ async function waitForUiSignal(username) {
 }
 
 async function waitForLoginComplete(username) {
+  if (process.env.FETPOST_CRON === '1') {
+    throw new Error(`Cron-mode autofill did not produce a session for ${username} — manual VNC refresh needed`);
+  }
   if (process.stdin.isTTY) {
     await waitForEnter(`[extractor] Press ENTER once you are logged in (or Ctrl+C to abort): `);
   } else {
@@ -146,7 +149,7 @@ async function extractCookiesForAccount(accountId, username, password) {
     while (Date.now() < autoDeadline) {
       try {
         const c = await context.cookies();
-        const session = c.find(x => (x.name === '_session_id' || x.name === 'remember_user_token') && x.value && x.value.length > 10 && x.domain.includes('fetlife.com'));
+        const session = c.find(x => (x.name === '_fl_sessionid' || x.name === '_session_id' || x.name === 'remember_user_token') && x.value && x.value.length > 10 && x.domain.includes('fetlife.com'));
         if (session) {
           let url = '';
           try { url = page.url(); } catch {}
@@ -255,7 +258,7 @@ export async function getCookiesForAccount(accountId) {
 
     // Check if cookies are expired
     const now = Date.now() / 1000;
-    const sessionCookie = cookies.find(c => c.name === '_session_id' || c.name === 'remember_user_token');
+    const sessionCookie = cookies.find(c => c.name === '_fl_sessionid' || c.name === '_session_id' || c.name === 'remember_user_token');
     if (sessionCookie && sessionCookie.expires && sessionCookie.expires < now) {
       console.log(`[extractor] Cookies expired for ${accountId}, need refresh`);
       return null;
