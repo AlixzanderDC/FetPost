@@ -23,6 +23,7 @@ import {
 import {
   listTrackedPosts, addTrackedPosts, removeTrackedPost, refreshAllTrackedPosts,
 } from './tracked-posts.js';
+import { listTemplates, addTemplate, removeTemplate } from './templates.js';
 
 const app = express();
 const PORT = 3747;
@@ -343,6 +344,31 @@ app.post('/accounts/:accountId/posts/tracked/refresh-all', auth, async (req, res
   refreshAllTrackedPosts(req.params.accountId)
     .then(r => console.log(`[tracked-posts] Done for ${req.params.accountId}: ${r.processed}/${r.total} processed`))
     .catch(err => console.error(`[tracked-posts] Refresh failed for ${req.params.accountId}:`, err.message));
+});
+
+// ── Templates (per-account saved post bodies) ───────────────────────────────
+
+app.get('/accounts/:accountId/templates', auth, async (req, res) => {
+  try {
+    const templates = await listTemplates(req.params.accountId);
+    res.json({ accountId: req.params.accountId, templates });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/accounts/:accountId/templates', auth, async (req, res) => {
+  const { name, postType, content } = req.body || {};
+  if (!name || !content) return res.status(400).json({ error: 'name and content required' });
+  try {
+    const entry = await addTemplate(req.params.accountId, { name, postType, content });
+    res.json({ success: true, template: entry });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/accounts/:accountId/templates/:id', auth, async (req, res) => {
+  try {
+    const result = await removeTemplate(req.params.accountId, req.params.id);
+    res.json({ success: true, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/accounts/:accountId/events/past', auth, async (req, res) => {

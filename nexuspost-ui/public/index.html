@@ -266,6 +266,10 @@
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="8" cy="11" r="2"/><path d="M5.5 6.5L7 9.5M10.5 6.5L9 9.5"/></svg>
         Group Cross-Post
       </div>
+      <div class="nav-item" onclick="showView('batchcompose')">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="3" rx="1"/><rect x="1" y="6.5" width="14" height="3" rx="1"/><rect x="1" y="11" width="14" height="3" rx="1"/></svg>
+        Batch Compose
+      </div>
       <div class="nav-item" onclick="showView('queue')">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="7" width="10" height="2" rx="1"/><rect x="1" y="12" width="12" height="2" rx="1"/></svg>
         Queue
@@ -347,7 +351,12 @@
                 <textarea class="compose-text" id="image-caption" rows="3" placeholder="Add a caption..." oninput="updateCharCount()"></textarea>
                 <div class="char-bar"><span class="char-count" id="char-count-img">0 chars</span></div>
               </div>
-              <div class="schedule-row">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+                <button class="btn btn-sm" type="button" onclick="openEventPickerModal()" title="Insert an upcoming event URL into the post body">📅 Insert event link</button>
+                <button class="btn btn-sm" type="button" onclick="openTemplatePickerModal()" title="Load a saved template into this post">📋 Load template</button>
+                <button class="btn btn-sm" type="button" onclick="saveCurrentAsTemplate()" title="Save the current post body as a template for the first selected account">💾 Save as template</button>
+              </div>
+              <div class="schedule-row" style="margin-top:8px">
                 <input type="datetime-local" id="schedule-time" />
                 <button class="btn btn-accent" onclick="schedulePost()">Schedule</button>
                 <button class="btn" onclick="scheduleNow()">Post now</button>
@@ -460,6 +469,22 @@
         <div id="cal-side-body"></div>
       </div>
 
+      <!-- Batch Compose -->
+      <div class="view" id="view-batchcompose">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+          <div>
+            <h2 style="margin:0 0 4px 0;font-size:20px;color:var(--text0)">Batch Compose</h2>
+            <div style="font-size:12px;color:var(--text2)">Write several distinct posts at once. Each row is its own scheduled job — different account, content, and time per row.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" type="button" onclick="bcAddRow()">+ Add row</button>
+            <button class="btn btn-accent" type="button" onclick="bcScheduleAll()">Schedule all</button>
+          </div>
+        </div>
+        <div id="batchcompose-rows"></div>
+        <div id="batchcompose-error" style="color:var(--danger);font-size:12px;font-family:var(--font-mono);margin-top:10px"></div>
+      </div>
+
       <!-- Queue -->
       <div class="view" id="view-queue">
         <div class="tab-bar">
@@ -543,6 +568,36 @@ https://fetlife.com/events/.../..."></textarea>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
       <button class="btn" onclick="closeTrackedPasteModal()">Cancel</button>
       <button class="btn btn-accent" onclick="submitTrackedPaste()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Compose: insert event URL picker -->
+<div class="modal-overlay hidden" id="event-picker-modal">
+  <div class="modal" style="max-width:640px;width:92vw;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Insert event link</span>
+      <button class="btn btn-sm" onclick="closeEventPickerModal()">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Upcoming events for the first selected account. Click an event to insert its URL at the cursor in your post.</div>
+    <div id="event-picker-list" style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:6px;padding:8px;min-height:200px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button class="btn" onclick="closeEventPickerModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Compose: template picker -->
+<div class="modal-overlay hidden" id="template-picker-modal">
+  <div class="modal" style="max-width:640px;width:92vw;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Load template</span>
+      <button class="btn btn-sm" onclick="closeTemplatePickerModal()">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Templates saved for the first selected account. Click one to load its content + post type into the form.</div>
+    <div id="template-picker-list" style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:6px;padding:8px;min-height:200px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button class="btn" onclick="closeTemplatePickerModal()">Close</button>
     </div>
   </div>
 </div>
@@ -730,7 +785,7 @@ https://fetlife.com/events/.../..."></textarea>
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────
-  const viewTitles = { dashboard: 'Marketing Calendar', compose: 'New Post', multipost: 'Multi-Post', grouppost: 'Group Cross-Post', queue: 'Post Queue', history: 'History', accounts: 'Accounts', insights: 'Event Insights' };
+  const viewTitles = { dashboard: 'Marketing Calendar', compose: 'New Post', multipost: 'Multi-Post', grouppost: 'Group Cross-Post', batchcompose: 'Batch Compose', queue: 'Post Queue', history: 'History', accounts: 'Accounts', insights: 'Event Insights' };
   function showView(name) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -743,6 +798,7 @@ https://fetlife.com/events/.../..."></textarea>
     if (name === 'compose') loadAccountCheckboxes();
     if (name === 'multipost') mpLoadAccountPills();
     if (name === 'grouppost') gpLoadAccounts();
+    if (name === 'batchcompose') initBatchComposeView();
     if (name === 'dashboard') loadDashboard();
     if (name === 'insights') initInsightsView();
   }
@@ -963,6 +1019,147 @@ https://fetlife.com/events/.../..."></textarea>
     } catch (err) { showToast('Track failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
+  // ── Batch Compose ──────────────────────────────────────────────────────────
+
+  let batchRows = [];   // [{ id, accountId, postType, content, scheduledAt, image }]
+  let batchSeq = 0;
+
+  function bcNewRow() {
+    return {
+      id: 'bc-' + (++batchSeq),
+      accountId: '',
+      postType: 'status',
+      content: '',
+      scheduledAt: '',
+      image: null,   // { data, mimeType, name } for image rows
+    };
+  }
+
+  function initBatchComposeView() {
+    if (batchRows.length === 0) batchRows = [bcNewRow(), bcNewRow()];
+    bcRender();
+  }
+
+  function bcAddRow() {
+    batchRows.push(bcNewRow());
+    bcRender();
+  }
+
+  function bcRemoveRow(rowId) {
+    batchRows = batchRows.filter(r => r.id !== rowId);
+    if (batchRows.length === 0) batchRows = [bcNewRow()];
+    bcRender();
+  }
+
+  function bcRender() {
+    const container = document.getElementById('batchcompose-rows');
+    const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    if (fetlifeAccounts.length === 0) {
+      container.innerHTML = '<div class="empty-state"><p>Add a FetLife account first.</p></div>';
+      return;
+    }
+    container.innerHTML = batchRows.map((r, i) => {
+      const acctOptions = fetlifeAccounts.map(a =>
+        '<option value="' + escAttr(a.accountId) + '"' + (r.accountId === a.accountId ? ' selected' : '') + '>' + escHtml(a.groupName || a.accountId) + '</option>'
+      ).join('');
+      const isImage = r.postType === 'picture';
+      const imgPreview = r.image
+        ? '<div style="margin-top:6px;display:flex;align-items:center;gap:8px"><img src="data:' + r.image.mimeType + ';base64,' + r.image.data + '" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border)"><span style="font-size:11px;color:var(--text2)">' + escHtml(r.image.name || 'image') + '</span><button class="btn btn-sm btn-danger" onclick="bcClearImage(\'' + escAttr(r.id) + '\')">×</button></div>'
+        : '';
+      return '<div class="compose-card" style="margin-bottom:12px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<div style="font-size:12px;color:var(--text2);font-family:var(--font-mono)">Post ' + (i + 1) + '</div>' +
+          '<button class="btn btn-sm btn-danger" onclick="bcRemoveRow(\'' + escAttr(r.id) + '\')">Remove</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 140px 220px;gap:8px;margin-bottom:8px">' +
+          '<select class="form-select" onchange="bcSet(\'' + escAttr(r.id) + '\',\'accountId\',this.value)">' +
+            '<option value="">Account…</option>' + acctOptions +
+          '</select>' +
+          '<select class="form-select" onchange="bcSet(\'' + escAttr(r.id) + '\',\'postType\',this.value)">' +
+            '<option value="status"' + (r.postType === 'status' ? ' selected' : '') + '>Text</option>' +
+            '<option value="picture"' + (r.postType === 'picture' ? ' selected' : '') + '>Image + Caption</option>' +
+          '</select>' +
+          '<input type="datetime-local" value="' + escAttr(r.scheduledAt || '') + '" onchange="bcSet(\'' + escAttr(r.id) + '\',\'scheduledAt\',this.value)" />' +
+        '</div>' +
+        '<textarea class="compose-text" rows="3" placeholder="' + (isImage ? 'Caption…' : 'Write your post…') + '" oninput="bcSet(\'' + escAttr(r.id) + '\',\'content\',this.value)">' + escHtml(r.content || '') + '</textarea>' +
+        (isImage
+          ? '<div style="margin-top:6px"><input type="file" accept="image/*" id="bc-img-' + escAttr(r.id) + '" style="display:none" onchange="bcHandleImage(event,\'' + escAttr(r.id) + '\')"><button class="btn btn-sm" type="button" onclick="document.getElementById(\'bc-img-' + escAttr(r.id) + '\').click()">📁 Choose image</button>' + imgPreview + '</div>'
+          : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function bcSet(rowId, field, value) {
+    const r = batchRows.find(x => x.id === rowId);
+    if (!r) return;
+    r[field] = value;
+    // If switching post type, blank the image so the form state stays consistent.
+    if (field === 'postType' && value !== 'picture') r.image = null;
+    if (field === 'postType') bcRender();
+  }
+
+  function bcClearImage(rowId) {
+    const r = batchRows.find(x => x.id === rowId);
+    if (r) { r.image = null; bcRender(); }
+  }
+
+  async function bcHandleImage(event, rowId) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const r = batchRows.find(x => x.id === rowId);
+    if (!r) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      // result is a data URL: "data:image/png;base64,<...>"
+      const m = String(result).match(/^data:([^;]+);base64,(.*)$/);
+      if (!m) { showToast('Could not read image', 'error'); return; }
+      r.image = { mimeType: m[1], data: m[2], name: file.name };
+      bcRender();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function bcScheduleAll() {
+    const errDiv = document.getElementById('batchcompose-error');
+    errDiv.textContent = '';
+    // Validate every row before submitting any.
+    for (let i = 0; i < batchRows.length; i++) {
+      const r = batchRows[i];
+      if (!r.accountId) { errDiv.textContent = 'Row ' + (i + 1) + ': pick an account'; return; }
+      if (!r.scheduledAt) { errDiv.textContent = 'Row ' + (i + 1) + ': pick a schedule time'; return; }
+      const content = (r.content || '').trim();
+      if (!content && r.postType !== 'picture') { errDiv.textContent = 'Row ' + (i + 1) + ': write some content'; return; }
+      if (r.postType === 'picture' && !r.image) { errDiv.textContent = 'Row ' + (i + 1) + ': add an image'; return; }
+    }
+    let ok = 0, failed = 0;
+    for (let i = 0; i < batchRows.length; i++) {
+      const r = batchRows[i];
+      const body = {
+        platforms: ['fetlife'],
+        accountIds: ['fetlife:' + r.accountId],
+        content: r.content || '',
+        scheduledAt: new Date(r.scheduledAt).toISOString(),
+        postType: r.postType,
+      };
+      if (r.postType === 'picture' && r.image) body.images = [r.image];
+      try {
+        const data = await api('POST', '/api/posts', body);
+        const results = data.results || [];
+        const rowFailed = results.filter(x => !x.success).length;
+        if (rowFailed === 0) ok++; else failed++;
+      } catch (err) { failed++; }
+    }
+    if (failed === 0) {
+      showToast('Scheduled ' + ok + ' post(s)', 'success');
+      batchRows = [bcNewRow()];   // reset to a single fresh row
+      bcRender();
+      loadDashboard();
+    } else {
+      showToast(ok + ' scheduled, ' + failed + ' failed', 'error');
+    }
+  }
+
   // ── Event Insights ─────────────────────────────────────────────────────────
 
   let insightsAccount = null;
@@ -990,6 +1187,150 @@ https://fetlife.com/events/.../..."></textarea>
     } catch (err) {
       content.innerHTML = '<div class="empty-state"><p>Failed to load: ' + escHtml(err.message || 'unknown') + '</p></div>';
     }
+  }
+
+  // ── Compose: event URL picker + template save/load ─────────────────────────
+
+  // Helper: which textarea is the active Compose content field?
+  function activeComposeTextarea() {
+    return currentPostType === 'image'
+      ? document.getElementById('image-caption')
+      : document.getElementById('compose-text');
+  }
+
+  // Insert `text` at the cursor in `ta` (textarea). Falls back to append if no selection.
+  function insertAtCursor(ta, text) {
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+    const cursor = start + text.length;
+    ta.focus();
+    ta.setSelectionRange(cursor, cursor);
+    // Trigger oninput so char counters + preview update.
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // The "first selected account" for these features. Returns the bare accountId (no platform prefix).
+  function firstSelectedFetlifeAccountId() {
+    for (const id of selectedAccounts) {
+      const [platform, accountId] = id.split(':');
+      if (platform === 'fetlife') return accountId;
+    }
+    return null;
+  }
+
+  async function openEventPickerModal() {
+    const accountId = firstSelectedFetlifeAccountId();
+    if (!accountId) { showToast('Select a FetLife account first', 'error'); return; }
+    const modal = document.getElementById('event-picker-modal');
+    const list = document.getElementById('event-picker-list');
+    list.innerHTML = '<div class="loading">Loading events…</div>';
+    modal.classList.remove('hidden');
+    try {
+      const data = await api('GET', '/api/fetlife/' + encodeURIComponent(accountId) + '/events');
+      const events = (data.events || []).filter(e => !e.isPast).sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+      if (events.length === 0) {
+        list.innerHTML = '<div style="font-size:12px;color:var(--text2);padding:8px">No upcoming events cached for this account. Refresh discovery from Accounts → ↻ Events.</div>';
+        return;
+      }
+      list.innerHTML = events.map(e => {
+        const date = e.urlDate || '';
+        const title = escHtml(e.title || e.url);
+        return '<div style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer" onclick="pickEventUrl(\'' + escAttr(e.url) + '\')">' +
+          '<div style="font-size:13px;color:var(--text0)">' + title + '</div>' +
+          '<div style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-top:2px">' + escHtml(date) + ' · ' + escHtml(e.url.replace('https://fetlife.com', '')) + '</div>' +
+        '</div>';
+      }).join('');
+    } catch (err) {
+      list.innerHTML = '<div style="color:var(--danger);padding:8px">Failed to load: ' + escHtml(err.message || 'unknown') + '</div>';
+    }
+  }
+
+  function closeEventPickerModal() { document.getElementById('event-picker-modal').classList.add('hidden'); }
+
+  function pickEventUrl(url) {
+    const ta = activeComposeTextarea();
+    if (!ta) { showToast('No active post field', 'error'); return; }
+    // Insert with surrounding whitespace so the URL doesn't fuse to neighboring text.
+    const surround = (ta.value.length > 0 && !/\s$/.test(ta.value.slice(0, ta.selectionStart || 0))) ? ' ' : '';
+    insertAtCursor(ta, surround + url);
+    closeEventPickerModal();
+    showToast('Inserted event URL', 'success');
+  }
+
+  async function openTemplatePickerModal() {
+    const accountId = firstSelectedFetlifeAccountId();
+    if (!accountId) { showToast('Select a FetLife account first', 'error'); return; }
+    const modal = document.getElementById('template-picker-modal');
+    const list = document.getElementById('template-picker-list');
+    list.innerHTML = '<div class="loading">Loading templates…</div>';
+    modal.classList.remove('hidden');
+    try {
+      const data = await api('GET', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates');
+      const templates = data.templates || [];
+      if (templates.length === 0) {
+        list.innerHTML = '<div style="font-size:12px;color:var(--text2);padding:8px">No templates saved yet for this account. Fill out a post and click <strong>💾 Save as template</strong>.</div>';
+        return;
+      }
+      list.innerHTML = templates.map(t => {
+        const preview = String(t.content || '').slice(0, 120).replace(/\n/g, ' ');
+        const type = t.postType === 'picture' || t.postType === 'image' ? 'Image' : 'Text';
+        return '<div style="padding:8px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start">' +
+          '<div style="flex:1;cursor:pointer" onclick="loadTemplate(\'' + escAttr(accountId) + '\',\'' + escAttr(t.id) + '\')">' +
+            '<div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:13px;color:var(--text0);font-weight:500">' + escHtml(t.name) + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono)">' + type + '</span></div>' +
+            '<div style="font-size:11px;color:var(--text2);margin-top:3px">' + escHtml(preview) + (t.content.length > 120 ? '…' : '') + '</div>' +
+          '</div>' +
+          '<button class="btn btn-sm btn-danger" style="font-size:10px;padding:1px 6px" onclick="deleteTemplate(\'' + escAttr(accountId) + '\',\'' + escAttr(t.id) + '\')">×</button>' +
+        '</div>';
+      }).join('');
+    } catch (err) {
+      list.innerHTML = '<div style="color:var(--danger);padding:8px">Failed to load: ' + escHtml(err.message || 'unknown') + '</div>';
+    }
+  }
+
+  function closeTemplatePickerModal() { document.getElementById('template-picker-modal').classList.add('hidden'); }
+
+  async function loadTemplate(accountId, id) {
+    try {
+      const data = await api('GET', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates');
+      const t = (data.templates || []).find(x => x.id === id);
+      if (!t) { showToast('Template not found', 'error'); return; }
+      // Set post type first so the right fields are visible.
+      const desiredType = (t.postType === 'picture' || t.postType === 'image') ? 'image' : 'text';
+      setPostType(desiredType);
+      const ta = activeComposeTextarea();
+      if (ta) {
+        ta.value = t.content;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      closeTemplatePickerModal();
+      showToast('Loaded template: ' + t.name, 'success');
+    } catch (err) { showToast('Load failed: ' + (err.message || 'unknown'), 'error'); }
+  }
+
+  async function deleteTemplate(accountId, id) {
+    if (!confirm('Delete this template?')) return;
+    try {
+      await api('DELETE', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates/' + encodeURIComponent(id));
+      showToast('Deleted', 'success');
+      openTemplatePickerModal();
+    } catch (err) { showToast('Delete failed: ' + (err.message || 'unknown'), 'error'); }
+  }
+
+  async function saveCurrentAsTemplate() {
+    const accountId = firstSelectedFetlifeAccountId();
+    if (!accountId) { showToast('Select a FetLife account first', 'error'); return; }
+    const ta = activeComposeTextarea();
+    const content = (ta && ta.value || '').trim();
+    if (!content) { showToast('Write something first', 'error'); return; }
+    const name = prompt('Template name?');
+    if (!name) return;
+    try {
+      const postType = currentPostType === 'image' ? 'picture' : 'status';
+      const r = await api('POST', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates', { name, postType, content });
+      if (r.success) showToast('Saved as "' + name + '"', 'success');
+      else showToast(r.error || 'Save failed', 'error');
+    } catch (err) { showToast('Save failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
   function openTrackedPasteModal() {

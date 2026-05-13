@@ -335,6 +335,29 @@ app.post('/api/fetlife/:accountId/posts/tracked/refresh-all', requireAuth, async
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Templates proxies ──────────────────────────────────────────────────────
+
+app.get('/api/fetlife/:accountId/templates', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/accounts/' + encodeURIComponent(req.params.accountId) + '/templates');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/fetlife/:accountId/templates', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/templates', req.body);
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/fetlife/:accountId/templates/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'DELETE', '/accounts/' + encodeURIComponent(req.params.accountId) + '/templates/' + encodeURIComponent(req.params.id));
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/fetlife/:accountId/events/insights', requireAuth, async (req, res) => {
   try {
     const result = await proxyRequest('fetlife', 'GET', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/insights');
