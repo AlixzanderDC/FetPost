@@ -215,6 +215,11 @@ RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=fetpost-ui
+# DISPLAY/XAUTHORITY are required so the manual "Refresh cookies" button can
+# launch a headed Chrome on TigerVNC display :1 when headless refresh fails.
+# Without them, the headed fallback either crashes or runs invisibly.
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/root/.Xauthority
 
 [Install]
 WantedBy=multi-user.target

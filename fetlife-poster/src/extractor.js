@@ -99,10 +99,14 @@ async function tryHeadlessRefresh(accountId, username) {
 }
 
 async function extractCookiesForAccount(accountId, username, password) {
-  const refreshed = await tryHeadlessRefresh(accountId, username);
-  if (refreshed) return refreshed;
+  if (process.env.FETPOST_FORCE_HEADED === '1') {
+    console.log(`[extractor] FETPOST_FORCE_HEADED=1 — skipping headless refresh for ${username}, going straight to VNC login`);
+  } else {
+    const refreshed = await tryHeadlessRefresh(accountId, username);
+    if (refreshed) return refreshed;
+  }
 
-  console.log(`[extractor] Headless refresh failed — launching headed Chrome for manual login: ${username}`);
+  console.log(`[extractor] Launching headed Chrome for manual login: ${username}`);
 
   const browser = await chromium.launch({
     headless: false,

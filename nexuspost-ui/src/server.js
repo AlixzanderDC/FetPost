@@ -119,14 +119,22 @@ app.post('/api/accounts/:platform/:accountId/extract-cookies', requireAuth, asyn
   const { platform, accountId } = req.params;
   const scriptPath = COOKIE_SCRIPTS[platform];
   if (!scriptPath) return res.status(400).json({ error: 'No cookie script for ' + platform });
-  res.json({ success: true, message: 'Cookie extraction started for ' + accountId });
-  setTimeout(() => {
-    // Quote the accountId since it can contain spaces (e.g., "Crucible Rendezvous").
-    const cmd = `"${scriptPath}" "${accountId.replace(/"/g, '\\"')}"`;
-    execAsync(cmd)
-      .then(() => console.log(`[ui] Cookie extraction completed for ${platform}/${accountId}`))
-      .catch(err => console.error(`[ui] Cookie extraction failed for ${platform}/${accountId}:`, err.message));
-  }, 3000);
+  const force = req.query.force === '1' || (req.body && req.body.force);
+  // Quote the accountId since it can contain spaces (e.g., "Crucible Rendezvous").
+  const cmd = `"${scriptPath}" "${accountId.replace(/"/g, '\\"')}"`;
+  // Long timeout — extractor waits up to 5 minutes for the UI "I've logged in" signal.
+  req.setTimeout(8 * 60 * 1000);
+  res.setTimeout(8 * 60 * 1000);
+  const env = { ...process.env };
+  if (force) env.FETPOST_FORCE_HEADED = '1';
+  try {
+    await execAsync(cmd, { maxBuffer: 10 * 1024 * 1024, timeout: 8 * 60 * 1000, env });
+    console.log(`[ui] Cookie extraction completed for ${platform}/${accountId}${force ? ' (forced VNC)' : ''}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`[ui] Cookie extraction failed for ${platform}/${accountId}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // User signals "I've logged in" from the UI; extractor (running headless) picks this up via the signal file.

@@ -123,6 +123,62 @@ async function clickSubmit(page) {
   return false;
 }
 
+const SCREENSHOTS_DIR = path.join(__dirname, '..', 'data', 'post-screenshots');
+
+// Verify a /home composer submit actually landed the post. We can't trust the
+// textarea-cleared signal alone — FetLife clears the form on silent rejections
+// too (rate-limit, duplicate, shadow-block). So we also save a screenshot for
+// inspection and look for the caption in the resulting feed before declaring success.
+async function verifyHomePostSubmitted(page, statusBoxSelector, originalCaption, label) {
+  await new Promise(r => setTimeout(r, 4000));
+
+  // Always save a screenshot — successful or not, useful for diagnosis.
+  await fs.mkdir(SCREENSHOTS_DIR, { recursive: true }).catch(() => {});
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeLabel = (label || 'post').replace(/[^a-z0-9_-]/gi, '_').slice(0, 60);
+  const screenshotPath = path.join(SCREENSHOTS_DIR, `${safeLabel}-${stamp}.png`);
+  await page.screenshot({ path: screenshotPath, fullPage: false }).catch(() => {});
+  console.log(`[poster] Screenshot saved: ${screenshotPath}`);
+
+  // Look for an explicit FetLife error banner first
+  let errMsg = '';
+  try {
+    errMsg = await page.$eval(
+      '.error:not(:empty), .alert-danger, .form-error, .field_with_errors, .has-error, [role="alert"]:not(.alert-success)',
+      el => (el.innerText || el.textContent || '').trim()
+    ).catch(() => '');
+  } catch {}
+  if (errMsg) {
+    throw new Error(`FetLife rejected post: "${errMsg.slice(0, 200)}" (screenshot: ${screenshotPath})`);
+  }
+
+  // If the URL navigated away from /home (e.g. /pictures/123, /users/.../posts/...)
+  // and isn't an auth error, treat as success.
+  const url = page.url();
+  if (!url.includes('/sign_in') && !url.includes('challenge') && !/\/home\/?$/.test(url)) {
+    return true;
+  }
+
+  // Still on /home — try to find our caption in the visible feed text.
+  const captionFragment = (originalCaption || '').trim().slice(0, 60);
+  if (captionFragment) {
+    try {
+      const found = await page.evaluate((frag) => {
+        const text = (document.body.innerText || '').toLowerCase();
+        return text.includes(frag.toLowerCase());
+      }, captionFragment);
+      if (found) return true;
+    } catch {}
+    throw new Error(`Post not visible in /home feed after submit — likely silent rejection (screenshot: ${screenshotPath})`);
+  }
+
+  // No caption (e.g. picture-only post) and URL didn't change — best-effort: check
+  // the composer textarea cleared.
+  const current = await page.$eval(statusBoxSelector, el => (el.value || '').trim()).catch(() => null);
+  if (current === null || current === '') return true;
+  throw new Error(`Composer still populated after submit — post did not go through (screenshot: ${screenshotPath})`);
+}
+
 // ── Login test ────────────────────────────────────────────────────────────────
 
 export async function loginToFetLife(username, password, options = {}) {
@@ -167,7 +223,7 @@ export async function postStatus(username, password, content, accountId) {
     const submitted = await clickSubmit(page);
     if (!submitted) throw new Error('Could not find submit button');
 
-    await delay(2000, 3000);
+    await verifyHomePostSubmitted(page, statusBox, content, `status-${id}`);
     await browser.close();
     console.log(`[poster] Status posted for ${id}`);
     return { success: true };
@@ -252,7 +308,7 @@ export async function postPicture(username, password, caption, images, accountId
     const submitted = await clickSubmit(page);
     if (!submitted) throw new Error('Could not find submit button');
 
-    await delay(3000, 5000);
+    await verifyHomePostSubmitted(page, statusBox, caption || '', `picture-${id}`);
     await browser.close();
     await cleanupTempFiles(tempFiles);
     console.log(`[poster] Picture posted for ${id}`);

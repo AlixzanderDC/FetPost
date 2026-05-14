@@ -30,11 +30,19 @@ export async function getQueue() {
   return Object.values(queue).sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
 }
 
+const FL_MAX_CHARS = 369;
+
 export async function schedulePost(job) {
   const {
     postId, accountId, content, scheduledAt, postType, eventDetails, images,
     groupId, title, body, eventUrl,
   } = job;
+  const type = postType || 'status';
+  // FetLife's /home composer (status + picture caption) rejects anything over 369 chars.
+  // Group posts and events use a separate page with a much higher limit.
+  if ((type === 'status' || type === 'picture') && (content || '').length > FL_MAX_CHARS) {
+    throw new Error(`Post exceeds FetLife limit of ${FL_MAX_CHARS} chars (got ${content.length})`);
+  }
   const queue = await loadQueue();
   queue[postId] = {
     postId, accountId, content: content || '',
@@ -102,10 +110,14 @@ export async function retryJob(postId) {
   const queue = await loadQueue();
   const job = queue[postId];
   if (!job) throw new Error(`Post ${postId} not found`);
-  if (job.status !== 'failed') throw new Error(`Cannot retry post in status "${job.status}" — only failed posts can be retried`);
+  const retryable = new Set(['failed', 'sent']);
+  if (!retryable.has(job.status)) throw new Error(`Cannot retry post in status "${job.status}" — only failed or sent posts can be retried`);
   job.status = 'scheduled';
   job.scheduledAt = new Date(Date.now() + 5000).toISOString(); // fire ~5s from now
   job.error = null;
+  // Clear sent-state so the result doesn't carry over from the previous attempt.
+  job.sentAt = null;
+  job.result = null;
   job.updatedAt = new Date().toISOString();
   await saveQueue(queue);
   armTimer(job);

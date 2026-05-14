@@ -96,7 +96,44 @@
     .post-btn.danger { color: var(--danger); }
     .post-btn.danger:hover { background: rgba(248,113,113,0.08); border-color: rgba(248,113,113,0.2); }
     .compose-grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
-    @media (max-width: 768px) { .compose-grid { grid-template-columns: 1fr; } .sidebar { display: none; } }
+    .hamburger { display: none; background: transparent; border: none; cursor: pointer; padding: 8px; margin-right: 8px; color: var(--text0); }
+    .hamburger svg { width: 22px; height: 22px; display: block; }
+    .sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; }
+    .sidebar-backdrop.show { display: block; }
+    .cal-list { display: none; }
+    .cal-list-day { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+    .cal-list-date { font-size: 12px; font-family: var(--font-mono); color: var(--text2); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    .cal-list-date.today { color: var(--accent); }
+    .cal-list-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg2); border-radius: var(--radius-sm); margin-bottom: 6px; cursor: pointer; border-left: 3px solid; }
+    .cal-list-item:last-child { margin-bottom: 0; }
+    .cal-list-time { font-size: 11px; font-family: var(--font-mono); color: var(--text2); min-width: 64px; flex-shrink: 0; }
+    .cal-list-label { font-size: 13px; color: var(--text0); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-list-empty { text-align: center; padding: 40px 20px; color: var(--text2); font-family: var(--font-mono); font-size: 12px; }
+    @media (max-width: 768px) {
+      .compose-grid { grid-template-columns: 1fr; }
+      .hamburger { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+      .sidebar { position: fixed; top: 0; left: 0; height: 100vh; z-index: 95; transform: translateX(-100%); transition: transform 0.2s; box-shadow: 4px 0 24px rgba(0,0,0,0.4); }
+      .sidebar.open { transform: translateX(0); }
+      .topbar { padding: 0 12px; }
+      .topbar-title { font-size: 14px; }
+      .content { padding: 14px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .stat-num { font-size: 22px; }
+      .cal-toolbar, .cal-grid { display: none !important; }
+      .cal-list { display: block !important; }
+      .nav-item, .btn, .post-btn, .toggle-pill { min-height: 36px; }
+      .modal { padding: 18px; }
+      .schedule-row, .post-header { gap: 8px; }
+      .mp-per-acct-body { grid-template-columns: 1fr; }
+      .mp-edit-pane { border-right: none; border-bottom: 1px solid var(--border); }
+      .cal-side { width: 100vw; }
+      table { font-size: 11px; }
+    }
+    @media (max-width: 480px) {
+      .stats-grid { grid-template-columns: 1fr; }
+      .content { padding: 10px; }
+    }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .compose-card { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 12px; }
     .compose-label { font-size: 11px; color: var(--text2); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
     .post-type-tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--bg2); border-radius: var(--radius-sm); padding: 3px; }
@@ -146,6 +183,11 @@
     .test-ok { background: rgba(52,211,153,0.12); color: var(--success); }
     .test-fail { background: rgba(248,113,113,0.12); color: var(--danger); }
     .test-pending { background: rgba(251,191,36,0.12); color: var(--warn); }
+    .capture-status { font-size: 14px; font-weight: 600; padding: 12px 14px; border-radius: var(--radius-sm); margin-bottom: 12px; line-height: 1.4; border: 1px solid transparent; display: none; }
+    .capture-status.has-message { display: block; }
+    .capture-status-info { background: rgba(96,165,250,0.12); color: #93c5fd; border-color: rgba(96,165,250,0.3); }
+    .capture-status-success { background: rgba(52,211,153,0.18); color: var(--success); border-color: rgba(52,211,153,0.4); font-size: 15px; }
+    .capture-status-error { background: rgba(248,113,113,0.15); color: var(--danger); border-color: rgba(248,113,113,0.4); }
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; display: flex; align-items: center; justify-content: center; }
     .modal-overlay.hidden { display: none; }
     .modal { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 28px; width: 420px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
@@ -291,9 +333,16 @@
     <div class="sidebar-footer" id="service-status"></div>
   </nav>
 
+  <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeSidebar()"></div>
+
   <div class="main">
     <div class="topbar">
-      <span class="topbar-title" id="topbar-title">Dashboard</span>
+      <div style="display:flex;align-items:center;min-width:0;flex:1">
+        <button class="hamburger" onclick="toggleSidebar()" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+        <span class="topbar-title" id="topbar-title">Dashboard</span>
+      </div>
       <button class="btn btn-accent" onclick="showView('compose')">+ New Post</button>
     </div>
     <div class="content">
@@ -322,6 +371,7 @@
           <span class="cal-month-label" id="cal-month-label"></span>
         </div>
         <div class="cal-grid" id="cal-grid"></div>
+        <div class="cal-list" id="cal-list"></div>
       </div>
 
       <!-- Compose -->
@@ -340,7 +390,7 @@
               <div class="account-checkboxes" id="account-checkboxes"><div class="loading">Loading...</div></div>
               <div id="text-fields">
                 <div class="compose-label">Content</div>
-                <textarea class="compose-text" id="compose-text" rows="5" placeholder="Write your post..." oninput="updateCharCount()"></textarea>
+                <textarea class="compose-text" id="compose-text" rows="5" maxlength="369" placeholder="Write your post..." oninput="updateCharCount()"></textarea>
                 <div class="char-bar"><span class="char-count" id="char-count">0 chars</span></div>
               </div>
               <div id="image-fields" style="display:none">
@@ -355,7 +405,7 @@
                 <input type="file" id="image-input" accept="image/*,video/*,audio/*" multiple style="display:none" onchange="handleImageFiles(event)">
                 <div class="image-grid" id="image-grid"></div>
                 <div class="compose-label">Caption</div>
-                <textarea class="compose-text" id="image-caption" rows="3" placeholder="Add a caption..." oninput="updateCharCount()"></textarea>
+                <textarea class="compose-text" id="image-caption" rows="3" maxlength="369" placeholder="Add a caption..." oninput="updateCharCount()"></textarea>
                 <div class="char-bar"><span class="char-count" id="char-count-img">0 chars</span></div>
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
@@ -399,7 +449,7 @@
           </div>
           <div id="mp-text-fields">
             <div class="compose-label">Base Post</div>
-            <textarea class="compose-text" id="mp-base-text" rows="4" placeholder="Write your base post..." oninput="mpOnBaseChange()"></textarea>
+            <textarea class="compose-text" id="mp-base-text" rows="4" maxlength="369" placeholder="Write your base post..." oninput="mpOnBaseChange()"></textarea>
             <div class="char-bar"><span class="char-count" id="mp-base-chars">0 chars</span></div>
           </div>
           <div id="mp-image-fields" style="display:none">
@@ -411,7 +461,7 @@
             <input type="file" id="mp-image-input" accept="image/*" multiple style="display:none" onchange="mpHandleBaseImages(event)">
             <div class="image-grid" id="mp-base-image-grid"></div>
             <div class="compose-label" style="margin-top:12px">Base Caption</div>
-            <textarea class="compose-text" id="mp-base-caption" rows="3" placeholder="Caption..." oninput="mpOnBaseChange()"></textarea>
+            <textarea class="compose-text" id="mp-base-caption" rows="3" maxlength="369" placeholder="Caption..." oninput="mpOnBaseChange()"></textarea>
           </div>
         </div>
         <div id="mp-per-acct-section"></div>
@@ -640,7 +690,7 @@ https://fetlife.com/events/.../..."></textarea>
       </ol>
       <p style="margin:0;color:var(--text2);font-size:12px">If headless refresh succeeds, this modal will auto-close. The "I've logged in" button is harmless to click either way.</p>
     </div>
-    <div id="cookie-capture-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
+    <div id="cookie-capture-status" class="capture-status capture-status-info"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
       <a class="btn" href="vnc://fetpost:5901" target="_blank" style="text-decoration:none">Open VNC</a>
       <button class="btn" onclick="cookieCaptureClose()">Close</button>
@@ -718,6 +768,7 @@ https://fetlife.com/events/.../..."></textarea>
     return '<img class="platform-icon' + (extraClass ? ' ' + extraClass : '') + '" src="' + cfg.iconUrl + '" alt="">';
   }
 
+  const FL_MAX_CHARS = 369; // FetLife status/picture composer hard limit
   let token = localStorage.getItem('np_token') || '';
   let allAccounts = [];
   let selectedPlatforms = new Set();
@@ -808,6 +859,21 @@ https://fetlife.com/events/.../..."></textarea>
     if (name === 'batchcompose') initBatchComposeView();
     if (name === 'dashboard') loadDashboard();
     if (name === 'insights') initInsightsView();
+    closeSidebar();
+  }
+
+  function toggleSidebar() {
+    const sb = document.querySelector('.sidebar');
+    const bd = document.getElementById('sidebar-backdrop');
+    if (!sb) return;
+    const open = sb.classList.toggle('open');
+    bd.classList.toggle('show', open);
+  }
+  function closeSidebar() {
+    const sb = document.querySelector('.sidebar');
+    const bd = document.getElementById('sidebar-backdrop');
+    if (sb) sb.classList.remove('open');
+    if (bd) bd.classList.remove('show');
   }
 
   async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); await loadAllPastEvents(); loadDashboard(); canvaRefreshStatus(); loadCookieRefreshStatus(); }
@@ -997,7 +1063,7 @@ https://fetlife.com/events/.../..."></textarea>
     const time = post.scheduledAt ? new Date(post.scheduledAt).toLocaleString() : '';
     const sentTime = post.sentAt ? new Date(post.sentAt).toLocaleString() : '';
     const cancelBtn = post.status === 'scheduled' ? '<button class="post-btn danger" onclick="cancelPost(\'' + post.platform + '\',\'' + post.postId + '\')">Cancel</button>' : '';
-    const retryBtn = post.status === 'failed' ? '<button class="post-btn" onclick="retryPost(\'' + post.platform + '\',\'' + post.postId + '\')">Retry</button>' : '';
+    const retryBtn = (post.status === 'failed' || post.status === 'sent') ? '<button class="post-btn" onclick="retryPost(\'' + post.platform + '\',\'' + post.postId + '\',\'' + post.status + '\')">Retry</button>' : '';
     // Engagement tracking — only for sent posts with a captured permalink (group cross-posts + events).
     const sentUrl = post.result && post.result.url ? post.result.url : null;
     const trackBtn = (post.status === 'sent' && sentUrl)
@@ -1020,8 +1086,11 @@ https://fetlife.com/events/.../..."></textarea>
     else showToast(data.error || 'Failed', 'error');
   }
 
-  async function retryPost(platform, postId) {
-    if (!confirm('Retry this post? It will fire within ~5 seconds.')) return;
+  async function retryPost(platform, postId, currentStatus) {
+    const msg = currentStatus === 'sent'
+      ? 'This post is marked as SENT. Only retry if you confirmed it did NOT actually appear on FetLife — otherwise you will create a duplicate. Retry anyway?'
+      : 'Retry this post? It will fire within ~5 seconds.';
+    if (!confirm(msg)) return;
     try {
       const data = await api('POST', '/api/posts/' + platform + '/' + encodeURIComponent(postId) + '/retry');
       if (data.success) {
@@ -1110,7 +1179,7 @@ https://fetlife.com/events/.../..."></textarea>
           '</select>' +
           '<input type="datetime-local" value="' + escAttr(r.scheduledAt || '') + '" onchange="bcSet(\'' + escAttr(r.id) + '\',\'scheduledAt\',this.value)" />' +
         '</div>' +
-        '<textarea class="compose-text" rows="3" placeholder="' + (isImage ? 'Caption…' : 'Write your post…') + '" oninput="bcSet(\'' + escAttr(r.id) + '\',\'content\',this.value)">' + escHtml(r.content || '') + '</textarea>' +
+        '<textarea class="compose-text" rows="3" maxlength="369" placeholder="' + (isImage ? 'Caption…' : 'Write your post…') + '" oninput="bcSet(\'' + escAttr(r.id) + '\',\'content\',this.value)">' + escHtml(r.content || '') + '</textarea>' +
         (isImage
           ? '<div style="margin-top:6px"><input type="file" accept="image/*" id="bc-img-' + escAttr(r.id) + '" style="display:none" onchange="bcHandleImage(event,\'' + escAttr(r.id) + '\')"><button class="btn btn-sm" type="button" onclick="document.getElementById(\'bc-img-' + escAttr(r.id) + '\').click()">📁 Choose image</button>' + imgPreview + '</div>'
           : '') +
@@ -1160,6 +1229,7 @@ https://fetlife.com/events/.../..."></textarea>
       const content = (r.content || '').trim();
       if (!content && r.postType !== 'picture') { errDiv.textContent = 'Row ' + (i + 1) + ': write some content'; return; }
       if (r.postType === 'picture' && !r.image) { errDiv.textContent = 'Row ' + (i + 1) + ': add an image'; return; }
+      if (content.length > FL_MAX_CHARS) { errDiv.textContent = 'Row ' + (i + 1) + ': ' + content.length + ' chars exceeds FetLife limit of ' + FL_MAX_CHARS; return; }
     }
     let ok = 0, failed = 0;
     for (let i = 0; i < batchRows.length; i++) {
@@ -1752,11 +1822,11 @@ https://fetlife.com/events/.../..."></textarea>
         '<div style="font-size:12px;color:var(--text2)">' + currentYear + ' YTD avg: <b style="color:var(--text0)">' + (ytdAvg !== null ? ytdAvg + ' RSVPs' : 'no data yet') + '</b> · ' + ytd.length + ' event(s)</div>' +
       '</div>' +
       (ytd.length > 0
-        ? '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px">' + ytdHeader + '<tbody>' + ytdRows + '</tbody></table>'
+        ? '<div class="table-wrap" style="margin-bottom:14px"><table style="width:100%;border-collapse:collapse;font-size:13px">' + ytdHeader + '<tbody>' + ytdRows + '</tbody></table></div>'
         : '<div style="color:var(--text2);font-size:12px;padding:10px 0">No events in ' + currentYear + '.</div>') +
       (priorYearRows
         ? '<div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px">Previous years</div>' +
-          '<table style="width:100%;border-collapse:collapse;font-size:13px">' + priorHeader + '<tbody>' + priorYearRows + '</tbody></table>'
+          '<div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:13px">' + priorHeader + '<tbody>' + priorYearRows + '</tbody></table></div>'
         : '') +
     '</section>';
   }
@@ -1881,12 +1951,12 @@ https://fetlife.com/events/.../..."></textarea>
     if (!confirm('A Chrome window will open in VNC. Log in there, then click "I\'ve logged in" in the modal. Continue?')) return;
     cookieCaptureOpen(accountId);
     try {
-      await api('POST', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId) + '/extract-cookies');
-      cookieCaptureSetStatus('Cookie extraction completed');
-      setTimeout(cookieCaptureClose, 1500);
+      await api('POST', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId) + '/extract-cookies?force=1');
+      cookieCaptureSetStatus('✓ Cookies refreshed successfully', 'success');
+      setTimeout(cookieCaptureClose, 2500);
       showToast('Cookies refreshed', 'success');
     } catch (err) {
-      cookieCaptureSetStatus('Cookie refresh failed: ' + (err.message || 'unknown'));
+      cookieCaptureSetStatus('✗ Cookie refresh failed: ' + (err.message || 'unknown'), 'error');
       showToast('Cookie refresh failed: ' + (err.message || 'unknown'), 'error');
     }
   }
@@ -1947,8 +2017,8 @@ https://fetlife.com/events/.../..."></textarea>
         if (platform !== 'bluesky') {
           cookieCaptureOpen(accountId);
           api('POST', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId) + '/extract-cookies')
-            .then(() => { cookieCaptureSetStatus('Cookie extraction completed'); setTimeout(cookieCaptureClose, 1500); showToast('Cookie extraction complete', 'success'); })
-            .catch(err => { cookieCaptureSetStatus('Cookie extraction failed: ' + (err.message || 'unknown')); showToast('Cookie extraction failed — run setup-cookies.js manually', 'error'); });
+            .then(() => { cookieCaptureSetStatus('✓ Cookie extraction completed', 'success'); setTimeout(cookieCaptureClose, 2500); showToast('Cookie extraction complete', 'success'); })
+            .catch(err => { cookieCaptureSetStatus('✗ Cookie extraction failed: ' + (err.message || 'unknown'), 'error'); showToast('Cookie extraction failed — run setup-cookies.js manually', 'error'); });
         }
       } else { errEl.textContent = data.error || 'Failed'; btn.textContent = 'Add Account'; btn.disabled = false; }
     } catch (err) { errEl.textContent = err.message; btn.textContent = 'Add Account'; btn.disabled = false; }
@@ -1958,20 +2028,24 @@ https://fetlife.com/events/.../..."></textarea>
 
   function cookieCaptureOpen(accountId) {
     document.getElementById('cookie-capture-account').textContent = accountId;
-    document.getElementById('cookie-capture-status').textContent = 'Waiting for Chrome to launch in VNC...';
+    cookieCaptureSetStatus('Extraction running — trying headless refresh first; if that fails, Chrome will open in VNC.', 'info');
     document.getElementById('cookie-capture-modal').classList.remove('hidden');
   }
   function cookieCaptureClose() { document.getElementById('cookie-capture-modal').classList.add('hidden'); }
-  function cookieCaptureSetStatus(msg) {
+  function cookieCaptureSetStatus(msg, kind) {
     const el = document.getElementById('cookie-capture-status');
-    if (el) el.textContent = msg;
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('capture-status-info','capture-status-success','capture-status-error');
+    el.classList.add('capture-status-' + (kind || 'info'));
+    el.classList.toggle('has-message', !!msg);
   }
   async function cookieCaptureSignal() {
-    cookieCaptureSetStatus('Signal sent — waiting for cookies to save...');
+    cookieCaptureSetStatus('✓ Signal sent — waiting for cookies to save…', 'success');
     try {
       await api('POST', '/api/cookie-signal');
     } catch (err) {
-      cookieCaptureSetStatus('Failed to send signal: ' + (err.message || 'unknown'));
+      cookieCaptureSetStatus('Failed to send signal: ' + (err.message || 'unknown'), 'error');
     }
   }
 
@@ -2180,7 +2254,13 @@ https://fetlife.com/events/.../..."></textarea>
     const text = isImage ? document.getElementById('image-caption').value : document.getElementById('compose-text').value;
     const ccId = isImage ? 'char-count-img' : 'char-count';
     const hasBs = [...selectedAccounts].some(id => id.startsWith('bluesky:'));
-    document.getElementById(ccId).textContent = text.length + ' chars' + (hasBs && text.length > 300 ? ' ⚠️ over Bluesky limit' : '');
+    const hasFl = [...selectedAccounts].some(id => id.startsWith('fetlife:'));
+    const len = text.length;
+    let label = len + ' / ' + FL_MAX_CHARS + ' chars';
+    if (hasBs && len > 300) label += ' ⚠️ over Bluesky limit';
+    const el = document.getElementById(ccId);
+    el.textContent = label;
+    el.classList.toggle('over', hasFl && len > FL_MAX_CHARS);
     document.getElementById('post-preview').textContent = text;
   }
 
@@ -2234,6 +2314,8 @@ https://fetlife.com/events/.../..."></textarea>
     const text = currentPostType === 'image' ? document.getElementById('image-caption').value.trim() : document.getElementById('compose-text').value.trim();
     if (!text && currentPostType === 'text') return 'Write something first';
     if (currentPostType === 'image' && uploadedImages.length === 0) return 'Add at least one image';
+    const hasFl = [...selectedAccounts].some(id => id.startsWith('fetlife:'));
+    if (hasFl && text.length > FL_MAX_CHARS) return 'FetLife limit is ' + FL_MAX_CHARS + ' chars — currently ' + text.length;
     return null;
   }
 
@@ -2301,7 +2383,7 @@ https://fetlife.com/events/.../..."></textarea>
       const acct = allAccounts.find(a => a.accountId === id);
       const name = acct ? (acct.groupName || id) : id;
       const cur = mpCustomText[id] || base;
-      return '<div class="mp-per-acct"><div class="mp-per-acct-header"><span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><span class="platform-dot dot-fl"></span>' + escHtml(name) + '</span><span style="display:flex;align-items:center;gap:8px"><span class="mp-sync-badge synced" id="mp-badge-' + s + '">In sync</span><button class="btn btn-sm" onclick="mpResetAccount(\'' + id + '\')">Reset</button></span></div><div class="mp-per-acct-body"><div class="mp-edit-pane"><div class="mp-pane-label">Customize</div><textarea class="compose-text" id="mp-ta-' + s + '" rows="4" oninput="mpOnAccountEdit(\'' + id + '\', this.value)">' + escHtml(cur) + '</textarea></div><div class="mp-diff-pane"><div class="mp-pane-label">Diff vs base</div><div class="mp-diff-box" id="mp-diff-' + s + '"></div></div></div></div>';
+      return '<div class="mp-per-acct"><div class="mp-per-acct-header"><span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><span class="platform-dot dot-fl"></span>' + escHtml(name) + '</span><span style="display:flex;align-items:center;gap:8px"><span class="mp-sync-badge synced" id="mp-badge-' + s + '">In sync</span><button class="btn btn-sm" onclick="mpResetAccount(\'' + id + '\')">Reset</button></span></div><div class="mp-per-acct-body"><div class="mp-edit-pane"><div class="mp-pane-label">Customize</div><textarea class="compose-text" id="mp-ta-' + s + '" rows="4" maxlength="369" oninput="mpOnAccountEdit(\'' + id + '\', this.value)">' + escHtml(cur) + '</textarea></div><div class="mp-diff-pane"><div class="mp-pane-label">Diff vs base</div><div class="mp-diff-box" id="mp-diff-' + s + '"></div></div></div></div>';
     }).join('');
     selArr.forEach(id => mpRenderDiff(id));
   }
@@ -2336,6 +2418,10 @@ https://fetlife.com/events/.../..."></textarea>
     if (mpSelectedAccounts.size === 0) { errEl.textContent = 'Select at least one account'; return; }
     const base = mpGetBaseText();
     if (!base && mpPostType === 'text') { errEl.textContent = 'Write a base post first'; return; }
+    for (const accountId of mpSelectedAccounts) {
+      const text = mpCustomText[accountId] || base;
+      if (text.length > FL_MAX_CHARS) { errEl.textContent = accountId + ': ' + text.length + ' chars exceeds FetLife limit of ' + FL_MAX_CHARS; return; }
+    }
     const results = [];
     for (const accountId of mpSelectedAccounts) {
       const content = mpCustomText[accountId] || base;
@@ -2429,6 +2515,47 @@ https://fetlife.com/events/.../..."></textarea>
       cells.push(calRenderCell(d, posts, otherMonth, isToday));
     }
     document.getElementById('cal-grid').innerHTML = dowHeader + cells.join('');
+
+    // Mobile list view — chronological from today onward.
+    const listEl = document.getElementById('cal-list');
+    if (listEl) {
+      const futureKeys = Object.keys(byDay).filter(k => k >= todayKey).sort();
+      if (futureKeys.length === 0) {
+        listEl.innerHTML = '<div class="cal-list-empty">No upcoming posts or events.</div>';
+      } else {
+        listEl.innerHTML = futureKeys.map(k => {
+          const isToday = k === todayKey;
+          const items = byDay[k];
+          const date = new Date(k + 'T00:00:00');
+          const dateLabel = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          const rows = items.map(calRenderListItem).join('');
+          return '<div class="cal-list-day">' +
+            '<div class="cal-list-date' + (isToday ? ' today' : '') + '">' + (isToday ? 'Today · ' : '') + escHtml(dateLabel) + '</div>' +
+            rows +
+          '</div>';
+        }).join('');
+      }
+    }
+  }
+
+  function calRenderListItem(item) {
+    if (item.kind === 'event') {
+      const e = item.data;
+      const c = colorForAccount(e.accountId);
+      return '<div class="cal-list-item" style="border-left-color:' + c.color + '" onclick="calOpenEvent(\'' + escAttr(e.url) + '\')">' +
+        '<span class="cal-list-time">📅 event</span>' +
+        '<span class="cal-list-label">' + escHtml(e.title || 'Untitled') + '</span>' +
+      '</div>';
+    }
+    const post = item.data;
+    const cfg = PLATFORMS[post.platform] || PLATFORMS.fetlife;
+    const time = new Date(post.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const id = post.platform + '|' + post.postId;
+    const label = post.groupName || post.accountId || '';
+    return '<div class="cal-list-item" style="border-left-color:' + cfg.color + '" onclick="calOpenPost(\'' + escAttr(id) + '\')">' +
+      '<span class="cal-list-time">' + escHtml(time) + '</span>' +
+      '<span class="cal-list-label">' + escHtml(label) + '</span>' +
+    '</div>';
   }
 
   function calRenderCell(d, items, otherMonth, isToday) {
