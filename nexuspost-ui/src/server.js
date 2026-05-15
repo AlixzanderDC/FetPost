@@ -477,6 +477,14 @@ app.delete('/api/posts/:platform/:postId', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.put('/api/posts/:platform/:postId', requireAuth, async (req, res) => {
+  const { platform, postId } = req.params;
+  try {
+    const result = await proxyRequest(platform, 'PUT', '/posts/' + encodeURIComponent(postId), req.body);
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/posts/:platform/:postId/retry', requireAuth, async (req, res) => {
   const { platform, postId } = req.params;
   try {

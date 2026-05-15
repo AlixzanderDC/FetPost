@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { schedulePost, scheduleGroupEventBatch, cancelPost, getQueue, clearJobsByStatus, retryJob } from './scheduler.js';
+import { schedulePost, scheduleGroupEventBatch, cancelPost, getQueue, clearJobsByStatus, retryJob, updateJob } from './scheduler.js';
 import { storeCredentials, listAccounts, removeAccount, testLogin } from './credentials.js';
 import { getPostHistory } from './history.js';
 import {
@@ -153,6 +153,16 @@ app.delete('/posts/:postId', auth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit a scheduled post — body may include title/body/content/scheduledAt.
+app.put('/posts/:postId', auth, async (req, res) => {
+  try {
+    const job = await updateJob(req.params.postId, req.body || {});
+    res.json({ success: true, post: job });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

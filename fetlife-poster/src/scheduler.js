@@ -106,6 +106,37 @@ export async function cancelPost(postId) {
   await saveQueue(queue);
 }
 
+// Edit fields of a scheduled job. Only allowed while status === 'scheduled' (already-sent or
+// running jobs can't be changed). If scheduledAt changes, clear the old timer and re-arm.
+// Updates pass through the same FetLife-composer 369-char limit check as schedulePost so a
+// status/picture edit can't sneak past the validator.
+export async function updateJob(postId, updates) {
+  const queue = await loadQueue();
+  const job = queue[postId];
+  if (!job) throw new Error(`Post ${postId} not found`);
+  if (job.status !== 'scheduled') throw new Error(`Cannot edit post in status "${job.status}" — only scheduled posts can be edited`);
+  const allowed = ['title', 'body', 'content', 'scheduledAt'];
+  const patch = {};
+  for (const k of allowed) if (k in (updates || {})) patch[k] = updates[k];
+  if ('content' in patch && (job.postType === 'status' || job.postType === 'picture')) {
+    if ((patch.content || '').length > FL_MAX_CHARS) {
+      throw new Error(`Post exceeds FetLife limit of ${FL_MAX_CHARS} chars (got ${patch.content.length})`);
+    }
+  }
+  if ('scheduledAt' in patch) {
+    const dt = patch.scheduledAt instanceof Date ? patch.scheduledAt : new Date(patch.scheduledAt);
+    if (isNaN(dt.getTime())) throw new Error('Invalid scheduledAt');
+    if (dt.getTime() <= Date.now()) throw new Error('scheduledAt must be in the future');
+    patch.scheduledAt = dt.toISOString();
+  }
+  Object.assign(job, patch, { updatedAt: new Date().toISOString() });
+  await saveQueue(queue);
+  // Re-arm timer so a new scheduledAt actually fires at the right moment.
+  if (activeTimers.has(postId)) { clearTimeout(activeTimers.get(postId)); activeTimers.delete(postId); }
+  armTimer(job);
+  return job;
+}
+
 export async function retryJob(postId) {
   const queue = await loadQueue();
   const job = queue[postId];
