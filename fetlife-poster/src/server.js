@@ -430,6 +430,34 @@ app.get('/metrics/event/:eventId', auth, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Cookie freshness — per-account file mtime so the UI can flag stale sessions
+// before the user notices via a broken operation.
+app.get('/cookies/freshness', auth, async (req, res) => {
+  try {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const { listAccounts } = await import('./credentials.js');
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const cookiesDir = path.join(__dirname, '..', 'data', 'cookies');
+    const accounts = await listAccounts();
+    const out = [];
+    for (const a of accounts) {
+      const f = path.join(cookiesDir, a.accountId + '.json');
+      try {
+        const st = await fs.stat(f);
+        const ageHours = (Date.now() - st.mtimeMs) / (1000 * 60 * 60);
+        out.push({ accountId: a.accountId, exists: true, mtime: st.mtime.toISOString(), ageHours: Number(ageHours.toFixed(2)) });
+      } catch {
+        out.push({ accountId: a.accountId, exists: false, mtime: null, ageHours: null });
+      }
+    }
+    res.json({ accounts: out });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Cookie refresh status — most recent cron run result
 app.get('/cookies/refresh-status', auth, async (req, res) => {
   try {
