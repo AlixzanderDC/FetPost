@@ -343,7 +343,6 @@
         </button>
         <span class="topbar-title" id="topbar-title">Dashboard</span>
       </div>
-      <button class="btn btn-accent" onclick="showView('compose')">+ New Post</button>
     </div>
     <div class="content">
 
@@ -356,6 +355,16 @@
 
       <!-- Dashboard -->
       <div class="view active" id="view-dashboard">
+        <div id="cookie-freshness-card" style="display:none;background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+            <div>
+              <div style="font-weight:600;font-size:14px;color:var(--text0)">🍪 Cookie freshness</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">Per-account FetLife session age. Refresh before posting if a row turns red.</div>
+            </div>
+            <button class="btn btn-sm" type="button" onclick="loadCookieFreshness()" title="Re-check cookie file ages">↻ Recheck</button>
+          </div>
+          <div id="cookie-freshness-rows" style="display:flex;flex-direction:column;gap:4px"></div>
+        </div>
         <div class="stats-grid">
           <div class="stat-card"><div class="stat-label">scheduled</div><div class="stat-num" id="stat-scheduled">—</div><div class="stat-sub">upcoming posts</div></div>
           <div class="stat-card"><div class="stat-label">sent today</div><div class="stat-num" id="stat-sent">—</div><div class="stat-sub">across all platforms</div></div>
@@ -364,12 +373,14 @@
         </div>
         <div class="cal-toolbar" style="margin-top:18px">
           <select class="form-select" id="cal-org" onchange="calRender()"><option value="">All organizations</option></select>
+          <button class="btn btn-sm" id="dash-refresh-events-btn" onclick="dashRefreshEvents()" title="Re-scrape upcoming events from FetLife for every account">↻ Refresh events</button>
           <span style="flex:1"></span>
           <button class="cal-nav-btn" onclick="calShiftMonth(-1)" title="Previous month">‹</button>
           <button class="btn btn-sm" onclick="calGoToday()">Today</button>
           <button class="cal-nav-btn" onclick="calShiftMonth(1)" title="Next month">›</button>
           <span class="cal-month-label" id="cal-month-label"></span>
         </div>
+        <div id="cal-legend" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;margin-bottom:6px"></div>
         <div class="cal-grid" id="cal-grid"></div>
         <div class="cal-list" id="cal-list"></div>
       </div>
@@ -459,9 +470,15 @@
               <div class="image-drop-zone-text">Click or drag to add base images</div>
             </div>
             <input type="file" id="mp-image-input" accept="image/*" multiple style="display:none" onchange="mpHandleBaseImages(event)">
+            <div id="mp-canva-row" style="display:none;margin-top:8px;text-align:center"><button class="btn" type="button" onclick="canvaOpenPicker('mp-base')">🎨 Pick from Canva</button></div>
             <div class="image-grid" id="mp-base-image-grid"></div>
             <div class="compose-label" style="margin-top:12px">Base Caption</div>
             <textarea class="compose-text" id="mp-base-caption" rows="3" maxlength="369" placeholder="Caption..." oninput="mpOnBaseChange()"></textarea>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn btn-sm" type="button" onclick="mpOpenEventPicker()" title="Insert an upcoming event URL into the base post">📅 Insert event link</button>
+            <button class="btn btn-sm" type="button" onclick="mpOpenTemplatePicker()" title="Load a saved template into the base post (uses first selected account)">📋 Load template</button>
+            <button class="btn btn-sm" type="button" onclick="mpSaveBaseAsTemplate()" title="Save the base post as a template on the first selected account">💾 Save as template</button>
           </div>
         </div>
         <div id="mp-per-acct-section"></div>
@@ -497,7 +514,13 @@
               <input class="form-input" type="text" id="gp-title" placeholder="Pick an event to populate" style="font-family:var(--font-mono);font-size:13px;">
 
               <div class="compose-label" style="margin-top:14px">Body</div>
-              <textarea class="compose-text" id="gp-body" rows="8" placeholder="Pick an event to populate. You can edit before scheduling."></textarea>
+              <textarea class="compose-text" id="gp-body" rows="8" placeholder="Pick an event to populate. You can edit before scheduling." oninput="gpUpdateBodyChars()"></textarea>
+              <div class="char-bar"><span class="char-count" id="gp-body-chars">0 chars</span></div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+                <button class="btn btn-sm" type="button" onclick="gpOpenEventPicker()" title="Insert another event URL into the body">📅 Insert event link</button>
+                <button class="btn btn-sm" type="button" onclick="gpOpenTemplatePicker()" title="Load a saved template into the body">📋 Load template</button>
+                <button class="btn btn-sm" type="button" onclick="gpSaveAsTemplate()" title="Save this body as a template on the selected account">💾 Save as template</button>
+              </div>
 
               <div class="schedule-row" style="margin-top:14px">
                 <input type="datetime-local" id="gp-schedule" />
@@ -537,6 +560,17 @@
             <button class="btn" type="button" onclick="bcAddRow()">+ Add row</button>
             <button class="btn btn-accent" type="button" onclick="bcScheduleAll()">Schedule all</button>
           </div>
+        </div>
+        <div class="compose-card" style="margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+            <div class="compose-label" style="margin:0">Focus on event <span style="color:var(--text2);font-weight:normal;font-size:11px">(optional — shows other scheduled posts already referencing this event)</span></div>
+            <button class="btn btn-sm" type="button" onclick="bcClearFocus()">Clear</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select class="form-select" id="bc-focus-account" onchange="bcOnFocusAccountChange()" style="flex:1;min-width:180px"><option value="">— pick an account —</option></select>
+            <select class="form-select" id="bc-focus-event" onchange="bcOnFocusEventChange()" style="flex:2;min-width:260px" disabled><option value="">— pick an account first —</option></select>
+          </div>
+          <div id="bc-focus-list" style="margin-top:10px;display:none"></div>
         </div>
         <div id="batchcompose-rows"></div>
         <div id="batchcompose-error" style="color:var(--danger);font-size:12px;font-family:var(--font-mono);margin-top:10px"></div>
@@ -625,6 +659,40 @@ https://fetlife.com/events/.../..."></textarea>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
       <button class="btn" onclick="closeTrackedPasteModal()">Cancel</button>
       <button class="btn btn-accent" onclick="submitTrackedPaste()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit scheduled post -->
+<div class="modal-overlay hidden" id="post-edit-modal">
+  <div class="modal" style="max-width:560px;width:92vw;max-height:88vh;display:flex;flex-direction:column">
+    <div class="modal-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Edit scheduled post</span>
+      <button class="btn btn-sm" onclick="closePostEditModal()">✕</button>
+    </div>
+    <div id="post-edit-meta" style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-bottom:8px"></div>
+    <div id="post-edit-title-row" style="display:none">
+      <div class="compose-label">Title</div>
+      <input class="form-input" type="text" id="post-edit-title" style="font-family:var(--font-mono);font-size:13px;width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text0)">
+    </div>
+    <div id="post-edit-body-row" style="display:none;margin-top:10px">
+      <div class="compose-label">Body</div>
+      <textarea class="compose-text" id="post-edit-body" rows="8" oninput="postEditUpdateChars()"></textarea>
+      <div class="char-bar"><span class="char-count" id="post-edit-body-chars">0 chars</span></div>
+    </div>
+    <div id="post-edit-content-row" style="display:none;margin-top:10px">
+      <div class="compose-label">Content</div>
+      <textarea class="compose-text" id="post-edit-content" rows="6" maxlength="369" oninput="postEditUpdateChars()"></textarea>
+      <div class="char-bar"><span class="char-count" id="post-edit-content-chars">0 / 369 chars</span></div>
+    </div>
+    <div style="margin-top:10px">
+      <div class="compose-label">Scheduled time</div>
+      <input type="datetime-local" id="post-edit-time" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text0);font-family:var(--font-mono);font-size:13px">
+    </div>
+    <div id="post-edit-error" style="color:var(--danger);font-size:12px;font-family:var(--font-mono);margin-top:8px;min-height:16px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+      <button class="btn" onclick="closePostEditModal()">Cancel</button>
+      <button class="btn btn-accent" id="post-edit-save-btn" onclick="savePostEdit()">Save changes</button>
     </div>
   </div>
 </div>
@@ -779,6 +847,7 @@ https://fetlife.com/events/.../..."></textarea>
   let allPosts = [];
   let allOrganizedEvents = []; // FetLife upcoming events organized by user's accounts (auto-populated)
   let allPastEvents = []; // FetLife past events organized by user's accounts (cached; manual refresh)
+  let allGroupsByAccount = {}; // { accountId: { groupId: groupName } } — global lookup for cross-post previews
   let accountColorMap = {};
   const ACCOUNT_PALETTE = [
     { color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
@@ -794,6 +863,17 @@ https://fetlife.com/events/.../..."></textarea>
       accountColorMap[accountId] = ACCOUNT_PALETTE[i];
     }
     return accountColorMap[accountId];
+  }
+  // Org-keyed color so events and posts from the same org get the same swatch on the
+  // dashboard, even when an org has multiple accountIds. Shares the cache with
+  // colorForAccount so a key only ever maps to one color across the session.
+  function colorForOrg(label) {
+    const key = (label || '').trim();
+    if (!key) return ACCOUNT_PALETTE[0];
+    return colorForAccount(key);
+  }
+  function orgLabelOf(item) {
+    return (item && (item.groupName || item.accountId) || '').trim();
   }
   let testResults = {};
   let mpSelectedAccounts = new Set();
@@ -876,7 +956,85 @@ https://fetlife.com/events/.../..."></textarea>
     if (bd) bd.classList.remove('show');
   }
 
-  async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); await loadAllPastEvents(); loadDashboard(); canvaRefreshStatus(); loadCookieRefreshStatus(); }
+  async function loadAll() { await loadAccounts(); await loadAllOrganizedEvents(); await loadAllPastEvents(); loadAllGroups(); loadDashboard(); canvaRefreshStatus(); loadCookieRefreshStatus(); loadCookieFreshness(); }
+
+  async function loadAllGroups() {
+    // Best-effort: pull cached joined-groups for every fetlife account so cal-side previews
+    // can resolve groupId → group name without forcing the Group Cross-Post view to load first.
+    allGroupsByAccount = {};
+    const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    await Promise.all(fetlifeAccounts.map(async a => {
+      try {
+        const data = await api('GET', '/api/fetlife/' + encodeURIComponent(a.accountId) + '/groups');
+        const map = {};
+        for (const g of (data.groups || [])) map[String(g.id)] = g.name;
+        allGroupsByAccount[a.accountId] = map;
+      } catch { /* ignore per-account failure — fall back to id in UI */ }
+    }));
+  }
+
+  function lookupGroupName(accountId, groupId) {
+    if (!groupId) return null;
+    const m = allGroupsByAccount[accountId];
+    return (m && m[String(groupId)]) || null;
+  }
+
+  async function loadCookieFreshness() {
+    try {
+      const data = await api('GET', '/api/fetlife/cookies/freshness');
+      const rows = (data && data.accounts) || [];
+      const card = document.getElementById('cookie-freshness-card');
+      const rowsEl = document.getElementById('cookie-freshness-rows');
+      if (!card || !rowsEl) return;
+      if (rows.length === 0) { card.style.display = 'none'; return; }
+      card.style.display = 'block';
+      rowsEl.innerHTML = rows.map(r => {
+        const age = r.ageHours;
+        // Bucket cookie age into traffic-light state. Thresholds chosen so a 4 AM cron run
+        // (max ~28h between runs in the every-2-days schedule) is "fresh"; >72h is risky.
+        let label, color, bg;
+        if (!r.exists) { label = 'no cookies'; color = '#f87171'; bg = 'rgba(248,113,113,0.12)'; }
+        else if (age == null) { label = 'unknown'; color = '#a0a0b0'; bg = 'rgba(160,160,176,0.12)'; }
+        else if (age < 24) { label = age.toFixed(1) + 'h old · fresh'; color = '#34d399'; bg = 'rgba(52,211,153,0.10)'; }
+        else if (age < 72) { label = age.toFixed(0) + 'h old · aging'; color = '#fbbf24'; bg = 'rgba(251,191,36,0.12)'; }
+        else { label = Math.floor(age / 24) + 'd old · refresh needed'; color = '#f87171'; bg = 'rgba(248,113,113,0.12)'; }
+        const acct = (allAccounts || []).find(a => a.platform === 'fetlife' && a.accountId === r.accountId);
+        const display = acct ? (acct.groupName || acct.accountId) : r.accountId;
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:' + bg + ';border-radius:6px">' +
+          '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">' +
+            '<span class="platform-dot dot-fl"></span>' +
+            '<span style="font-size:13px;color:var(--text0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(display) + '</span>' +
+            '<span style="font-family:var(--font-mono);font-size:11px;color:' + color + ';font-weight:600">' + escHtml(label) + '</span>' +
+          '</div>' +
+          '<button class="btn btn-sm" type="button" onclick="dashRefreshOneCookie(\'' + escAttr(r.accountId) + '\', this)" title="Open VNC Chrome and refresh this account&#39;s FetLife session">Refresh now</button>' +
+        '</div>';
+      }).join('');
+    } catch (err) {
+      console.warn('[freshness] failed:', err && err.message);
+    }
+  }
+
+  async function dashRefreshOneCookie(accountId, btn) {
+    const orig = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = 'Refreshing… (check VNC)'; }
+    try {
+      const res = await fetch('/api/accounts/fetlife/' + encodeURIComponent(accountId) + '/extract-cookies?force=1', {
+        method: 'POST',
+        headers: { 'x-ui-token': token },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        showToast('Refresh failed: ' + (data.error || 'HTTP ' + res.status), 'error');
+      } else {
+        showToast('Cookies refreshed for ' + accountId, 'success');
+      }
+    } catch (err) {
+      showToast('Refresh failed: ' + (err.message || 'unknown'), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+      loadCookieFreshness();
+    }
+  }
 
   async function loadCookieRefreshStatus() {
     try {
@@ -923,6 +1081,48 @@ https://fetlife.com/events/.../..."></textarea>
         allPastEvents.push(...events);
       } catch { /* ignore per-account failures */ }
     }
+  }
+
+  async function dashRefreshEvents() {
+    const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    if (fetlifeAccounts.length === 0) { showToast('No FetLife accounts to refresh', 'info'); return; }
+    const btn = document.getElementById('dash-refresh-events-btn');
+    const orig = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+    let ok = 0, failed = 0;
+    // api() returns JSON even on server-side errors, so we use fetch directly to inspect
+    // status + payload and surface scrape failures (otherwise refresh appears to "succeed"
+    // while the on-disk cache is left untouched).
+    for (const a of fetlifeAccounts) {
+      try {
+        const res = await fetch('/api/fetlife/' + encodeURIComponent(a.accountId) + '/events/refresh', {
+          method: 'POST',
+          headers: { 'x-ui-token': token },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) {
+          failed++;
+          console.warn('[dash] refresh FAILED for', a.accountId, '— HTTP', res.status, data);
+        } else {
+          ok++;
+          const count = (data.events || []).length;
+          console.log('[dash] refresh ok for', a.accountId, '—', count, 'event(s), fetchedAt', data.fetchedAt);
+        }
+      } catch (err) {
+        failed++;
+        console.warn('[dash] refresh threw for', a.accountId, err);
+      }
+    }
+    await loadAllOrganizedEvents();
+    if (typeof calRender === 'function') calRender();
+    // If the user is currently in Batch Compose, repopulate the focus event dropdown so
+    // newly-discovered events appear without a view switch.
+    if (typeof bcInitFocus === 'function' && document.getElementById('view-batchcompose')?.classList.contains('active')) {
+      bcInitFocus();
+    }
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    if (failed === 0) showToast('Refreshed events for ' + ok + ' account(s)', 'success');
+    else showToast(ok + ' ok, ' + failed + ' failed — open devtools console (F12) for per-account errors', 'error');
   }
 
   async function refreshPastEventsForAccount(accountId) {
@@ -981,14 +1181,53 @@ https://fetlife.com/events/.../..."></textarea>
     const enabled = enabledPlatformEntries();
     document.getElementById('stat-platforms').textContent = enabled.length;
     document.getElementById('stat-platforms-sub').textContent = enabled.map(([,c]) => c.label).join(' · ');
-    // Populate org filter from scheduled posts and render the calendar grid.
-    const orgs = [...new Set(scheduled.map(p => p.groupName || p.accountId).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    // Populate org filter from scheduled posts AND upcoming events so every org with
+    // something on the calendar shows up — not just posts.
+    const orgsFromPosts = scheduled.map(p => orgLabelOf(p)).filter(Boolean);
+    const orgsFromEvents = (allOrganizedEvents || []).map(e => orgLabelOf(e)).filter(Boolean);
+    const orgs = [...new Set([...orgsFromPosts, ...orgsFromEvents])].sort((a, b) => a.localeCompare(b));
     const sel = document.getElementById('cal-org');
     const current = sel.value;
+    // Color dot in option text — supported in Chrome/Firefox, gracefully ignored elsewhere.
     sel.innerHTML = '<option value="">All organizations</option>' +
-      orgs.map(o => '<option value="' + escHtml(o) + '"' + (o === current ? ' selected' : '') + '>' + escHtml(o) + '</option>').join('');
+      orgs.map(o => {
+        const c = colorForOrg(o);
+        return '<option value="' + escHtml(o) + '" style="color:' + c.color + '"' + (o === current ? ' selected' : '') + '>● ' + escHtml(o) + '</option>';
+      }).join('');
+    // Color-coded legend row — also acts as a click-to-filter UI.
+    const legend = document.getElementById('cal-legend');
+    if (legend) {
+      if (orgs.length === 0) {
+        legend.innerHTML = '';
+      } else {
+        legend.innerHTML = orgs.map(o => {
+          const c = colorForOrg(o);
+          const active = o === current;
+          return '<button type="button" onclick="calFilterByOrg(\'' + escAttr(o) + '\')" ' +
+            'style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;cursor:pointer;font-size:11px;font-family:var(--font-mono);font-weight:600;' +
+            'border:1px solid ' + (active ? c.color : 'var(--border)') + ';' +
+            'background:' + (active ? c.bg : 'var(--bg2)') + ';' +
+            'color:' + c.color + '">' +
+              '<span style="width:8px;height:8px;border-radius:50%;background:' + c.color + '"></span>' +
+              escHtml(o) +
+          '</button>';
+        }).join('') +
+        (current
+          ? '<button type="button" onclick="calFilterByOrg(\'\')" style="padding:3px 10px;border-radius:99px;cursor:pointer;font-size:11px;font-family:var(--font-mono);border:1px solid var(--border);background:transparent;color:var(--text2)">Clear filter</button>'
+          : '');
+      }
+    }
     calRender();
   }
+
+  // Click handler for the legend chips — toggles the cal-org select value + re-renders.
+  window.calFilterByOrg = function (label) {
+    const sel = document.getElementById('cal-org');
+    if (!sel) return;
+    // Clicking the active chip clears the filter.
+    sel.value = (sel.value === label) ? '' : label;
+    loadDashboard(); // re-populates legend with active state + re-renders calendar
+  };
 
   // ── Queue ─────────────────────────────────────────────────────────────────
   async function loadQueue() {
@@ -1123,19 +1362,142 @@ https://fetlife.com/events/.../..."></textarea>
   let batchSeq = 0;
 
   function bcNewRow() {
+    // New rows inherit the focus header's account + a default time in the event's month
+    // so the user doesn't have to set the same values over and over.
     return {
       id: 'bc-' + (++batchSeq),
-      accountId: '',
+      accountId: bcFocusAccount || '',
       postType: 'status',
       content: '',
-      scheduledAt: '',
+      scheduledAt: bcDefaultRowTime(),
       image: null,   // { data, mimeType, name } for image rows
     };
+  }
+
+  // Default scheduledAt for a fresh row — anchored on the focused event's month so the
+  // <input type="datetime-local"> picker opens on the right month. Empty string when no
+  // event is focused (HTML input defaults to current month).
+  function bcDefaultRowTime() {
+    if (!bcFocusEventUrl) return '';
+    const ev = (allOrganizedEvents || []).find(e => e.url === bcFocusEventUrl);
+    if (!ev || !ev.urlDate) return '';
+    return ev.urlDate + 'T10:00';
   }
 
   function initBatchComposeView() {
     if (batchRows.length === 0) batchRows = [bcNewRow(), bcNewRow()];
     bcRender();
+    bcInitFocus();
+    // Refresh allPosts so the focus list reflects newly scheduled work without the user
+    // having to bounce through Dashboard first. loadDashboard repopulates allPosts.
+    loadDashboard().then(() => bcRenderFocusList()).catch(() => {});
+  }
+
+  // ── Batch Compose: event focus ─────────────────────────────────────────────
+  let bcFocusAccount = null;
+  let bcFocusEventUrl = null;
+
+  function bcInitFocus() {
+    const sel = document.getElementById('bc-focus-account');
+    if (!sel) return;
+    const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
+    sel.innerHTML = '<option value="">— pick an account —</option>' +
+      fetlifeAccounts.map(a => '<option value="' + escAttr(a.accountId) + '"' + (bcFocusAccount === a.accountId ? ' selected' : '') + '>' + escHtml(a.groupName || a.accountId) + '</option>').join('');
+    bcOnFocusAccountChange();
+  }
+
+  function bcOnFocusAccountChange() {
+    bcFocusAccount = document.getElementById('bc-focus-account').value || null;
+    const evSel = document.getElementById('bc-focus-event');
+    if (!bcFocusAccount) {
+      evSel.innerHTML = '<option value="">— pick an account first —</option>';
+      evSel.disabled = true;
+      bcFocusEventUrl = null;
+      bcRenderFocusList();
+      // Don't auto-blank existing row accounts on clear — leave whatever the user set.
+      return;
+    }
+    // Propagate the focus account to every batch row so the user doesn't reselect it
+    // per-row. They can still override a single row's account afterward; if they then
+    // change the header again it'll override back.
+    if (Array.isArray(batchRows)) {
+      for (const r of batchRows) r.accountId = bcFocusAccount;
+    }
+    const events = (allOrganizedEvents || [])
+      .filter(e => e.accountId === bcFocusAccount && !e.isPast)
+      .sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+    if (events.length === 0) {
+      evSel.innerHTML = '<option value="">No upcoming events cached for this account</option>';
+      evSel.disabled = true;
+    } else {
+      evSel.innerHTML = '<option value="">— choose an event —</option>' +
+        events.map(e => '<option value="' + escAttr(e.url) + '"' + (bcFocusEventUrl === e.url ? ' selected' : '') + '>' + escHtml((e.urlDate ? e.urlDate + ' · ' : '') + (e.title || e.url)) + '</option>').join('');
+      evSel.disabled = false;
+    }
+    bcFocusEventUrl = evSel.value || null;
+    bcRender();
+    bcRenderFocusList();
+  }
+
+  function bcOnFocusEventChange() {
+    bcFocusEventUrl = document.getElementById('bc-focus-event').value || null;
+    // Pre-fill any empty row's scheduledAt with a slot in the event's month so the
+    // datetime-local picker opens on the right month. Don't touch rows the user has
+    // already set — those are intentional.
+    const def = bcDefaultRowTime();
+    if (def && Array.isArray(batchRows)) {
+      for (const r of batchRows) {
+        if (!r.scheduledAt) r.scheduledAt = def;
+      }
+    }
+    bcRender();
+    bcRenderFocusList();
+  }
+
+  function bcClearFocus() {
+    bcFocusAccount = null;
+    bcFocusEventUrl = null;
+    const acctSel = document.getElementById('bc-focus-account');
+    const evSel = document.getElementById('bc-focus-event');
+    if (acctSel) acctSel.value = '';
+    if (evSel) { evSel.value = ''; evSel.disabled = true; evSel.innerHTML = '<option value="">— pick an account first —</option>'; }
+    bcRenderFocusList();
+  }
+
+  function bcRenderFocusList() {
+    const wrap = document.getElementById('bc-focus-list');
+    if (!wrap) return;
+    if (!bcFocusEventUrl) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+    // A post "references" this event if its eventUrl matches (group_event posts) OR the
+    // event URL appears verbatim in its content (status/picture posts).
+    const matches = (allPosts || [])
+      .filter(p => {
+        if (p.status !== 'scheduled') return false;
+        if (p.eventUrl === bcFocusEventUrl) return true;
+        if (typeof p.content === 'string' && p.content.includes(bcFocusEventUrl)) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    wrap.style.display = 'block';
+    if (matches.length === 0) {
+      wrap.innerHTML = '<div style="font-size:12px;color:var(--text2);font-family:var(--font-mono);padding:10px 4px">No scheduled posts reference this event yet.</div>';
+      return;
+    }
+    const itemsHtml = matches.map(p => {
+      const c = colorForOrg(orgLabelOf(p));
+      const when = new Date(p.scheduledAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+      const id = p.platform + '|' + p.postId;
+      const typeLabel = p.postType === 'group_event' ? 'group post' : (p.postType || 'status');
+      const label = orgLabelOf(p) + ' · ' + typeLabel;
+      return '<div class="cal-list-item" style="border-left-color:' + c.color + '" onclick="calOpenPost(\'' + escAttr(id) + '\')" title="Click to expand">' +
+        '<span class="cal-list-time">' + escHtml(when) + '</span>' +
+        '<span class="cal-list-label">' + escHtml(label) + '</span>' +
+      '</div>';
+    }).join('');
+    wrap.innerHTML =
+      '<div style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-bottom:6px">' +
+        matches.length + ' scheduled post' + (matches.length === 1 ? '' : 's') + ' referencing this event — click to expand' +
+      '</div>' + itemsHtml;
   }
 
   function bcAddRow() {
@@ -1156,6 +1518,7 @@ https://fetlife.com/events/.../..."></textarea>
       container.innerHTML = '<div class="empty-state"><p>Add a FetLife account first.</p></div>';
       return;
     }
+    const addRowBtn = '<div style="margin-top:4px;margin-bottom:12px"><button class="btn" type="button" onclick="bcAddRow()">+ Add row</button></div>';
     container.innerHTML = batchRows.map((r, i) => {
       const acctOptions = fetlifeAccounts.map(a =>
         '<option value="' + escAttr(a.accountId) + '"' + (r.accountId === a.accountId ? ' selected' : '') + '>' + escHtml(a.groupName || a.accountId) + '</option>'
@@ -1164,6 +1527,15 @@ https://fetlife.com/events/.../..."></textarea>
       const imgPreview = r.image
         ? '<div style="margin-top:6px;display:flex;align-items:center;gap:8px"><img src="data:' + r.image.mimeType + ';base64,' + r.image.data + '" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border)"><span style="font-size:11px;color:var(--text2)">' + escHtml(r.image.name || 'image') + '</span><button class="btn btn-sm btn-danger" onclick="bcClearImage(\'' + escAttr(r.id) + '\')">×</button></div>'
         : '';
+      const bcLen = (r.content || '').length;
+      const bcOver = bcLen > FL_MAX_CHARS ? ' over' : '';
+      const rowCharBar = '<div class="char-bar"><span class="char-count' + bcOver + '" id="bc-chars-' + escAttr(r.id) + '">' + bcLen + ' / ' + FL_MAX_CHARS + ' chars</span></div>';
+      const rowToolbar =
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
+          '<button class="btn btn-sm" type="button" onclick="bcOpenEventPicker(\'' + escAttr(r.id) + '\')" title="Insert an upcoming event URL into this post">📅 Insert event link</button>' +
+          '<button class="btn btn-sm" type="button" onclick="bcOpenTemplatePicker(\'' + escAttr(r.id) + '\')" title="Load a saved template into this row">📋 Load template</button>' +
+          '<button class="btn btn-sm" type="button" onclick="bcSaveAsTemplate(\'' + escAttr(r.id) + '\')" title="Save this row as a template on its account">💾 Save as template</button>' +
+        '</div>';
       return '<div class="compose-card" style="margin-bottom:12px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
           '<div style="font-size:12px;color:var(--text2);font-family:var(--font-mono)">Post ' + (i + 1) + '</div>' +
@@ -1179,12 +1551,16 @@ https://fetlife.com/events/.../..."></textarea>
           '</select>' +
           '<input type="datetime-local" value="' + escAttr(r.scheduledAt || '') + '" onchange="bcSet(\'' + escAttr(r.id) + '\',\'scheduledAt\',this.value)" />' +
         '</div>' +
-        '<textarea class="compose-text" rows="3" maxlength="369" placeholder="' + (isImage ? 'Caption…' : 'Write your post…') + '" oninput="bcSet(\'' + escAttr(r.id) + '\',\'content\',this.value)">' + escHtml(r.content || '') + '</textarea>' +
+        '<textarea class="compose-text" id="bc-ta-' + escAttr(r.id) + '" rows="3" maxlength="369" placeholder="' + (isImage ? 'Caption…' : 'Write your post…') + '" oninput="bcSet(\'' + escAttr(r.id) + '\',\'content\',this.value)">' + escHtml(r.content || '') + '</textarea>' +
+        rowCharBar +
+        rowToolbar +
         (isImage
-          ? '<div style="margin-top:6px"><input type="file" accept="image/*" id="bc-img-' + escAttr(r.id) + '" style="display:none" onchange="bcHandleImage(event,\'' + escAttr(r.id) + '\')"><button class="btn btn-sm" type="button" onclick="document.getElementById(\'bc-img-' + escAttr(r.id) + '\').click()">📁 Choose image</button>' + imgPreview + '</div>'
+          ? '<div style="margin-top:6px"><input type="file" accept="image/*" id="bc-img-' + escAttr(r.id) + '" style="display:none" onchange="bcHandleImage(event,\'' + escAttr(r.id) + '\')"><button class="btn btn-sm" type="button" onclick="document.getElementById(\'bc-img-' + escAttr(r.id) + '\').click()">📁 Choose image</button>' +
+              (canvaState && canvaState.connected ? '<button class="btn btn-sm" type="button" style="margin-left:6px" onclick="canvaOpenPicker(\'bc:' + escAttr(r.id) + '\')">🎨 Pick from Canva</button>' : '') +
+              imgPreview + '</div>'
           : '') +
       '</div>';
-    }).join('');
+    }).join('') + addRowBtn;
   }
 
   function bcSet(rowId, field, value) {
@@ -1194,6 +1570,14 @@ https://fetlife.com/events/.../..."></textarea>
     // If switching post type, blank the image so the form state stays consistent.
     if (field === 'postType' && value !== 'picture') r.image = null;
     if (field === 'postType') bcRender();
+    if (field === 'content') {
+      const el = document.getElementById('bc-chars-' + rowId);
+      if (el) {
+        const len = (value || '').length;
+        el.textContent = len + ' / ' + FL_MAX_CHARS + ' chars';
+        el.classList.toggle('over', len > FL_MAX_CHARS);
+      }
+    }
   }
 
   function bcClearImage(rowId) {
@@ -1216,6 +1600,27 @@ https://fetlife.com/events/.../..."></textarea>
       bcRender();
     };
     reader.readAsDataURL(file);
+  }
+
+  // Per-row event/template helpers — resolve the row's account + textarea at click time
+  // (the user can change the account dropdown between renders).
+  function bcRowOrToast(rowId) {
+    const r = batchRows.find(x => x.id === rowId);
+    if (!r) return null;
+    if (!r.accountId) { showToast('Pick an account for this row first', 'error'); return null; }
+    return r;
+  }
+  function bcOpenEventPicker(rowId) {
+    const r = bcRowOrToast(rowId); if (!r) return;
+    openEventPickerModal(r.accountId, 'bc-ta-' + rowId);
+  }
+  function bcOpenTemplatePicker(rowId) {
+    const r = bcRowOrToast(rowId); if (!r) return;
+    openTemplatePickerModal(r.accountId, 'bc-ta-' + rowId);
+  }
+  function bcSaveAsTemplate(rowId) {
+    const r = bcRowOrToast(rowId); if (!r) return;
+    saveCurrentAsTemplate(r.accountId, 'bc-ta-' + rowId, r.postType === 'picture' ? 'picture' : 'status');
   }
 
   async function bcScheduleAll() {
@@ -1290,11 +1695,22 @@ https://fetlife.com/events/.../..."></textarea>
 
   // ── Compose: event URL picker + template save/load ─────────────────────────
 
+  // Picker target — set by whichever composer opened the modal. When `textareaId`
+  // is null we're in main Compose and pickers fall back to activeComposeTextarea()
+  // + setPostType(). Otherwise we inject straight into the named textarea.
+  let pickerCtx = null;
+
   // Helper: which textarea is the active Compose content field?
   function activeComposeTextarea() {
     return currentPostType === 'image'
       ? document.getElementById('image-caption')
       : document.getElementById('compose-text');
+  }
+
+  // Resolve the textarea the open picker should target.
+  function pickerTargetTextarea() {
+    if (pickerCtx && pickerCtx.textareaId) return document.getElementById(pickerCtx.textareaId);
+    return activeComposeTextarea();
   }
 
   // Insert `text` at the cursor in `ta` (textarea). Falls back to append if no selection.
@@ -1318,9 +1734,23 @@ https://fetlife.com/events/.../..."></textarea>
     return null;
   }
 
-  async function openEventPickerModal() {
-    const accountId = firstSelectedFetlifeAccountId();
+  // HTML for the per-composer toolbar (Insert event link / Load template / Save template).
+  // accountIdExpr + textareaIdExpr must be JS string expressions that resolve at click time
+  // (so callers in dynamically rendered rows can pass row-local values). Pass postType as
+  // 'status' or 'picture' so Save knows what kind of template this is.
+  function composerToolbarHtml(accountIdExpr, textareaIdExpr, postTypeExpr) {
+    const a = accountIdExpr, t = textareaIdExpr, p = postTypeExpr || "'status'";
+    return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
+      '<button class="btn btn-sm" type="button" onclick="openEventPickerModal(' + a + ',' + t + ')" title="Insert an upcoming event URL">📅 Insert event link</button>' +
+      '<button class="btn btn-sm" type="button" onclick="openTemplatePickerModal(' + a + ',' + t + ')" title="Load a saved template">📋 Load template</button>' +
+      '<button class="btn btn-sm" type="button" onclick="saveCurrentAsTemplate(' + a + ',' + t + ',' + p + ')" title="Save the current content as a template">💾 Save as template</button>' +
+    '</div>';
+  }
+
+  async function openEventPickerModal(accountId, textareaId) {
+    accountId = accountId || firstSelectedFetlifeAccountId();
     if (!accountId) { showToast('Select a FetLife account first', 'error'); return; }
+    pickerCtx = { accountId, textareaId: textareaId || null };
     const modal = document.getElementById('event-picker-modal');
     const list = document.getElementById('event-picker-list');
     list.innerHTML = '<div class="loading">Loading events…</div>';
@@ -1348,18 +1778,47 @@ https://fetlife.com/events/.../..."></textarea>
   function closeEventPickerModal() { document.getElementById('event-picker-modal').classList.add('hidden'); }
 
   function pickEventUrl(url) {
-    const ta = activeComposeTextarea();
+    const ta = pickerTargetTextarea();
     if (!ta) { showToast('No active post field', 'error'); return; }
     // Insert with surrounding whitespace so the URL doesn't fuse to neighboring text.
-    const surround = (ta.value.length > 0 && !/\s$/.test(ta.value.slice(0, ta.selectionStart || 0))) ? ' ' : '';
+    const start = ta.selectionStart || 0;
+    const surround = (ta.value.length > 0 && !/\s$/.test(ta.value.slice(0, start))) ? ' ' : '';
     insertAtCursor(ta, surround + url);
+    // Also anchor the composer's schedule input to the event's month so the user's
+    // datetime-local picker opens there. Linking a post to an event almost always means
+    // "schedule it around then".
+    applyEventDateDefault(url);
     closeEventPickerModal();
     showToast('Inserted event URL', 'success');
   }
 
-  async function openTemplatePickerModal() {
-    const accountId = firstSelectedFetlifeAccountId();
+  // Set the schedule input that belongs to whichever composer opened the event picker.
+  // Looks up the event by URL in the cached organized-events list to read its urlDate.
+  function applyEventDateDefault(eventUrl) {
+    const ev = (allOrganizedEvents || []).find(e => e.url === eventUrl);
+    if (!ev || !ev.urlDate) return;
+    const dt = ev.urlDate + 'T10:00';
+    const targetId = pickerCtx && pickerCtx.textareaId;
+    if (!targetId) {
+      const el = document.getElementById('schedule-time');
+      if (el) el.value = dt;
+    } else if (targetId === 'mp-base-text' || targetId === 'mp-base-caption' || targetId.startsWith('mp-ta-')) {
+      const el = document.getElementById('mp-schedule-time');
+      if (el) el.value = dt;
+    } else if (targetId.startsWith('bc-ta-')) {
+      const rowId = targetId.slice('bc-ta-'.length);
+      const row = (batchRows || []).find(r => r.id === rowId);
+      if (row) { row.scheduledAt = dt; if (typeof bcRender === 'function') bcRender(); }
+    } else if (targetId === 'gp-body') {
+      const el = document.getElementById('gp-schedule');
+      if (el) el.value = dt;
+    }
+  }
+
+  async function openTemplatePickerModal(accountId, textareaId) {
+    accountId = accountId || firstSelectedFetlifeAccountId();
     if (!accountId) { showToast('Select a FetLife account first', 'error'); return; }
+    pickerCtx = { accountId, textareaId: textareaId || null };
     const modal = document.getElementById('template-picker-modal');
     const list = document.getElementById('template-picker-list');
     list.innerHTML = '<div class="loading">Loading templates…</div>';
@@ -1373,11 +1832,19 @@ https://fetlife.com/events/.../..."></textarea>
       }
       list.innerHTML = templates.map(t => {
         const preview = String(t.content || '').slice(0, 120).replace(/\n/g, ' ');
-        const type = t.postType === 'picture' || t.postType === 'image' ? 'Image' : 'Text';
+        const imgCount = Array.isArray(t.images) ? t.images.length : 0;
+        const typeBase = t.postType === 'picture' || t.postType === 'image' ? 'Image' : 'Text';
+        const type = imgCount > 0 ? typeBase + ' · ' + imgCount + ' img' : typeBase;
+        const thumb = imgCount > 0 && t.images[0] && t.images[0].data
+          ? '<img src="data:' + escAttr(t.images[0].mimeType || 'image/jpeg') + ';base64,' + t.images[0].data + '" style="width:36px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--border);flex-shrink:0">'
+          : '';
         return '<div style="padding:8px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start">' +
-          '<div style="flex:1;cursor:pointer" onclick="loadTemplate(\'' + escAttr(accountId) + '\',\'' + escAttr(t.id) + '\')">' +
-            '<div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:13px;color:var(--text0);font-weight:500">' + escHtml(t.name) + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono)">' + type + '</span></div>' +
-            '<div style="font-size:11px;color:var(--text2);margin-top:3px">' + escHtml(preview) + (t.content.length > 120 ? '…' : '') + '</div>' +
+          '<div style="flex:1;cursor:pointer;display:flex;gap:8px" onclick="loadTemplate(\'' + escAttr(accountId) + '\',\'' + escAttr(t.id) + '\')">' +
+            thumb +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:13px;color:var(--text0);font-weight:500">' + escHtml(t.name) + '</span><span style="font-size:11px;color:var(--text2);font-family:var(--font-mono)">' + type + '</span></div>' +
+              '<div style="font-size:11px;color:var(--text2);margin-top:3px">' + escHtml(preview) + ((t.content || '').length > 120 ? '…' : '') + '</div>' +
+            '</div>' +
           '</div>' +
           '<button class="btn btn-sm btn-danger" style="font-size:10px;padding:1px 6px" onclick="deleteTemplate(\'' + escAttr(accountId) + '\',\'' + escAttr(t.id) + '\')">×</button>' +
         '</div>';
@@ -1394,41 +1861,101 @@ https://fetlife.com/events/.../..."></textarea>
       const data = await api('GET', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates');
       const t = (data.templates || []).find(x => x.id === id);
       if (!t) { showToast('Template not found', 'error'); return; }
-      // Set post type first so the right fields are visible.
-      const desiredType = (t.postType === 'picture' || t.postType === 'image') ? 'image' : 'text';
-      setPostType(desiredType);
-      const ta = activeComposeTextarea();
-      if (ta) {
-        ta.value = t.content;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      const images = Array.isArray(t.images) ? t.images : [];
+      const isImageTpl = images.length > 0 || t.postType === 'picture' || t.postType === 'image';
+      const targetId = pickerCtx && pickerCtx.textareaId;
+
+      if (!targetId) {
+        // Main Compose — flip tab + restore both text and images.
+        const desiredType = isImageTpl ? 'image' : 'text';
+        setPostType(desiredType);
+        if (isImageTpl && images.length) {
+          uploadedImages = images.map(im => ({ data: im.data, mimeType: im.mimeType, name: im.name || 'image' }));
+          if (typeof renderImageGrid === 'function') renderImageGrid();
+        }
+        const ta = activeComposeTextarea();
+        if (ta) { ta.value = t.content || ''; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+      } else if (targetId === 'mp-base-text' || targetId === 'mp-base-caption') {
+        // Multi-Post base composer — flip its tab + restore base images.
+        if (typeof mpSetPostType === 'function') mpSetPostType(isImageTpl ? 'image' : 'text');
+        if (isImageTpl && images.length) {
+          mpBaseImages = images.map(im => ({ data: im.data, mimeType: im.mimeType, name: im.name || 'image' }));
+          if (typeof mpRenderBaseGrid === 'function') mpRenderBaseGrid();
+        }
+        const ta = document.getElementById(mpActiveBaseTextareaId());
+        if (ta) { ta.value = t.content || ''; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+      } else if (targetId.startsWith('bc-ta-')) {
+        // Batch Compose row — flip to picture if the template has images, set r.image.
+        const rowId = targetId.slice('bc-ta-'.length);
+        const r = (batchRows || []).find(x => x.id === rowId);
+        if (r) {
+          r.content = t.content || '';
+          if (isImageTpl && images.length) { r.postType = 'picture'; r.image = images[0]; }
+          if (typeof bcRender === 'function') bcRender();
+        }
+      } else {
+        // Per-account Multi-Post pane, Group Cross-Post body, or anything else: text only.
+        const ta = document.getElementById(targetId);
+        if (ta) { ta.value = t.content || ''; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+        if (isImageTpl && images.length) {
+          showToast('Loaded text only — this composer doesn\'t accept images', 'info');
+        }
       }
+
       closeTemplatePickerModal();
-      showToast('Loaded template: ' + t.name, 'success');
+      const imgNote = images.length ? ' (+ ' + images.length + ' image' + (images.length === 1 ? '' : 's') + ')' : '';
+      showToast('Loaded template: ' + t.name + imgNote, 'success');
     } catch (err) { showToast('Load failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
   async function deleteTemplate(accountId, id) {
     if (!confirm('Delete this template?')) return;
+    // Preserve the original target textarea so re-opening the list doesn't reset to main Compose.
+    const prevTarget = pickerCtx ? pickerCtx.textareaId : null;
     try {
       await api('DELETE', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates/' + encodeURIComponent(id));
       showToast('Deleted', 'success');
-      openTemplatePickerModal();
+      openTemplatePickerModal(accountId, prevTarget);
     } catch (err) { showToast('Delete failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
-  async function saveCurrentAsTemplate() {
-    const accountId = firstSelectedFetlifeAccountId();
+  // Resolve the images attached to whichever composer originated the save call. We key
+  // on the textareaId because each composer has a distinct images store; main compose
+  // (textareaId omitted) reads `uploadedImages`.
+  function resolveTemplateImages(textareaId, postType) {
+    const wantImages = postType === 'picture' || postType === 'image';
+    if (!wantImages) return [];
+    if (!textareaId) return Array.isArray(uploadedImages) ? uploadedImages.slice() : [];
+    if (textareaId === 'mp-base-caption' || textareaId === 'mp-base-text') {
+      return Array.isArray(mpBaseImages) ? mpBaseImages.slice() : [];
+    }
+    if (textareaId.startsWith('bc-ta-')) {
+      const rowId = textareaId.slice('bc-ta-'.length);
+      const row = (batchRows || []).find(r => r.id === rowId);
+      return row && row.image ? [row.image] : [];
+    }
+    // mp-ta-<slug> (per-account compose pane) and gp-body have no first-class image UI yet
+    return [];
+  }
+
+  async function saveCurrentAsTemplate(accountId, textareaId, postType) {
+    accountId = accountId || firstSelectedFetlifeAccountId();
     if (!accountId) { showToast('Select a FetLife account first', 'error'); return; }
-    const ta = activeComposeTextarea();
+    const ta = textareaId ? document.getElementById(textareaId) : activeComposeTextarea();
     const content = (ta && ta.value || '').trim();
-    if (!content) { showToast('Write something first', 'error'); return; }
+    const finalPostType = postType || (currentPostType === 'image' ? 'picture' : 'status');
+    const images = resolveTemplateImages(textareaId, finalPostType);
+    if (!content && images.length === 0) { showToast('Add some content or an image first', 'error'); return; }
     const name = prompt('Template name?');
     if (!name) return;
     try {
-      const postType = currentPostType === 'image' ? 'picture' : 'status';
-      const r = await api('POST', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates', { name, postType, content });
-      if (r.success) showToast('Saved as "' + name + '"', 'success');
-      else showToast(r.error || 'Save failed', 'error');
+      const body = { name, postType: finalPostType, content };
+      if (images.length) body.images = images;
+      const r = await api('POST', '/api/fetlife/' + encodeURIComponent(accountId) + '/templates', body);
+      if (r.success) {
+        const imgNote = images.length ? ' (with ' + images.length + ' image' + (images.length === 1 ? '' : 's') + ')' : '';
+        showToast('Saved as "' + name + '"' + imgNote, 'success');
+      } else showToast(r.error || 'Save failed', 'error');
     } catch (err) { showToast('Save failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
@@ -2082,8 +2609,14 @@ https://fetlife.com/events/.../..."></textarea>
   }
 
   function canvaRenderComposeButton() {
+    const show = canvaState.connected ? 'block' : 'none';
     const row = document.getElementById('canva-picker-row');
-    if (row) row.style.display = canvaState.connected ? 'block' : 'none';
+    if (row) row.style.display = show;
+    const mpRow = document.getElementById('mp-canva-row');
+    if (mpRow) mpRow.style.display = show;
+    // Batch Compose rows are rendered dynamically; re-render so the per-row button appears/disappears
+    // when connection state changes.
+    if (typeof bcRender === 'function' && document.getElementById('batchcompose-rows')) bcRender();
   }
 
   function canvaConnect() { window.location.href = '/oauth/canva/authorize'; }
@@ -2204,11 +2737,29 @@ https://fetlife.com/events/.../..."></textarea>
     try {
       const data = await api('POST', '/api/canva/import-design', { designId, name });
       if (!data.success || !data.image) throw new Error(data.error || 'No image returned');
-      // Insert into the active target's image array. Compose only for now.
-      if (canvaState.target === 'compose') {
+      const target = canvaState.target || 'compose';
+      // Route the imported image to the composer that opened the picker.
+      if (target === 'compose') {
         if (typeof uploadedImages !== 'undefined') {
           uploadedImages.push(data.image);
           if (typeof renderImageGrid === 'function') renderImageGrid();
+        }
+        // Make sure the user is on the image tab so they can see the new asset.
+        if (typeof setPostType === 'function' && currentPostType !== 'image') setPostType('image');
+      } else if (target === 'mp-base') {
+        if (typeof mpBaseImages !== 'undefined') {
+          mpBaseImages.push(data.image);
+          if (typeof mpRenderBaseGrid === 'function') mpRenderBaseGrid();
+        }
+        if (typeof mpSetPostType === 'function' && mpPostType !== 'image') mpSetPostType('image');
+      } else if (target.startsWith('bc:')) {
+        const rowId = target.slice(3);
+        const row = batchRows.find(x => x.id === rowId);
+        if (row) {
+          // Batch Compose rows hold a single image; replace whatever was there.
+          row.image = data.image;
+          if (row.postType !== 'picture') row.postType = 'picture';
+          bcRender();
         }
       }
       canvaClosePicker();
@@ -2367,8 +2918,24 @@ https://fetlife.com/events/.../..."></textarea>
 
   function mpOnBaseChange() {
     const base = mpGetBaseText();
-    document.getElementById('mp-base-chars').textContent = base.length + ' chars';
-    mpSelectedAccounts.forEach(id => { if (!mpCustomText[id]) { const ta = document.getElementById('mp-ta-' + slugifyId(id)); if (ta) ta.value = base; } mpRenderDiff(id); });
+    const el = document.getElementById('mp-base-chars');
+    el.textContent = base.length + ' / ' + FL_MAX_CHARS + ' chars';
+    el.classList.toggle('over', base.length > FL_MAX_CHARS);
+    mpSelectedAccounts.forEach(id => {
+      if (!mpCustomText[id]) { const ta = document.getElementById('mp-ta-' + slugifyId(id)); if (ta) ta.value = base; }
+      mpRenderDiff(id);
+      mpUpdateAccountChars(id);
+    });
+  }
+
+  function mpUpdateAccountChars(id) {
+    const s = slugifyId(id);
+    const ta = document.getElementById('mp-ta-' + s);
+    const el = document.getElementById('mp-chars-' + s);
+    if (!ta || !el) return;
+    const len = (ta.value || '').length;
+    el.textContent = len + ' / ' + FL_MAX_CHARS + ' chars';
+    el.classList.toggle('over', len > FL_MAX_CHARS);
   }
 
   function mpGetBaseText() { return mpPostType === 'image' ? document.getElementById('mp-base-caption').value : document.getElementById('mp-base-text').value; }
@@ -2378,17 +2945,39 @@ https://fetlife.com/events/.../..."></textarea>
     const selArr = [...mpSelectedAccounts];
     if (selArr.length === 0) { section.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2);font-size:13px;font-family:var(--font-mono)">Select accounts above to customize per-account posts</div>'; return; }
     const base = mpGetBaseText();
+    const postType = mpPostType === 'image' ? 'picture' : 'status';
     section.innerHTML = selArr.map(id => {
       const s = slugifyId(id);
       const acct = allAccounts.find(a => a.accountId === id);
       const name = acct ? (acct.groupName || id) : id;
       const cur = mpCustomText[id] || base;
-      return '<div class="mp-per-acct"><div class="mp-per-acct-header"><span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><span class="platform-dot dot-fl"></span>' + escHtml(name) + '</span><span style="display:flex;align-items:center;gap:8px"><span class="mp-sync-badge synced" id="mp-badge-' + s + '">In sync</span><button class="btn btn-sm" onclick="mpResetAccount(\'' + id + '\')">Reset</button></span></div><div class="mp-per-acct-body"><div class="mp-edit-pane"><div class="mp-pane-label">Customize</div><textarea class="compose-text" id="mp-ta-' + s + '" rows="4" maxlength="369" oninput="mpOnAccountEdit(\'' + id + '\', this.value)">' + escHtml(cur) + '</textarea></div><div class="mp-diff-pane"><div class="mp-pane-label">Diff vs base</div><div class="mp-diff-box" id="mp-diff-' + s + '"></div></div></div></div>';
+      const toolbar = composerToolbarHtml("'" + escAttr(id) + "'", "'mp-ta-" + s + "'", "'" + postType + "'");
+      const overClass = (cur || '').length > FL_MAX_CHARS ? ' over' : '';
+      const charBar = '<div class="char-bar"><span class="char-count' + overClass + '" id="mp-chars-' + s + '">' + (cur || '').length + ' / ' + FL_MAX_CHARS + ' chars</span></div>';
+      return '<div class="mp-per-acct"><div class="mp-per-acct-header"><span style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600"><span class="platform-dot dot-fl"></span>' + escHtml(name) + '</span><span style="display:flex;align-items:center;gap:8px"><span class="mp-sync-badge synced" id="mp-badge-' + s + '">In sync</span><button class="btn btn-sm" onclick="mpResetAccount(\'' + id + '\')">Reset</button></span></div><div class="mp-per-acct-body"><div class="mp-edit-pane"><div class="mp-pane-label">Customize</div><textarea class="compose-text" id="mp-ta-' + s + '" rows="4" maxlength="369" oninput="mpOnAccountEdit(\'' + id + '\', this.value)">' + escHtml(cur) + '</textarea>' + charBar + toolbar + '</div><div class="mp-diff-pane"><div class="mp-pane-label">Diff vs base</div><div class="mp-diff-box" id="mp-diff-' + s + '"></div></div></div></div>';
     }).join('');
     selArr.forEach(id => mpRenderDiff(id));
   }
 
-  function mpOnAccountEdit(id, value) { const base = mpGetBaseText(); mpCustomText[id] = value === base ? null : value; mpRenderDiff(id); }
+  function mpFirstSelectedAccountId() { for (const id of mpSelectedAccounts) return id; return null; }
+  function mpActiveBaseTextareaId() { return mpPostType === 'image' ? 'mp-base-caption' : 'mp-base-text'; }
+  function mpOpenEventPicker() {
+    const acct = mpFirstSelectedAccountId();
+    if (!acct) { showToast('Select a FetLife account first', 'error'); return; }
+    openEventPickerModal(acct, mpActiveBaseTextareaId());
+  }
+  function mpOpenTemplatePicker() {
+    const acct = mpFirstSelectedAccountId();
+    if (!acct) { showToast('Select a FetLife account first', 'error'); return; }
+    openTemplatePickerModal(acct, mpActiveBaseTextareaId());
+  }
+  function mpSaveBaseAsTemplate() {
+    const acct = mpFirstSelectedAccountId();
+    if (!acct) { showToast('Select a FetLife account first', 'error'); return; }
+    saveCurrentAsTemplate(acct, mpActiveBaseTextareaId(), mpPostType === 'image' ? 'picture' : 'status');
+  }
+
+  function mpOnAccountEdit(id, value) { const base = mpGetBaseText(); mpCustomText[id] = value === base ? null : value; mpRenderDiff(id); mpUpdateAccountChars(id); }
 
   function mpResetAccount(id) { mpCustomText[id] = null; const ta = document.getElementById('mp-ta-' + slugifyId(id)); if (ta) ta.value = mpGetBaseText(); mpRenderPerAccount(); }
 
@@ -2449,6 +3038,21 @@ https://fetlife.com/events/.../..."></textarea>
   document.getElementById('gp-schedule').value = dtStr;
 
   // ── Marketing Calendar ───────────────────────────────────────────────────
+  // Per-postType visual cue so users can tell at a glance whether a chip is a regular
+  // status, an image post, a group cross-post, or a scheduled event creation.
+  function postTypeIcon(postType) {
+    if (postType === 'group_event') return '👥';
+    if (postType === 'picture') return '🖼️';
+    if (postType === 'event') return '📅';
+    return '💬';
+  }
+  function postTypeLabel(postType) {
+    if (postType === 'group_event') return 'group';
+    if (postType === 'picture') return 'image';
+    if (postType === 'event') return 'event';
+    return 'status';
+  }
+
   let calCurrentMonth = (() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; })();
 
   function calDayKey(d) {
@@ -2541,19 +3145,20 @@ https://fetlife.com/events/.../..."></textarea>
   function calRenderListItem(item) {
     if (item.kind === 'event') {
       const e = item.data;
-      const c = colorForAccount(e.accountId);
+      const c = colorForOrg(orgLabelOf(e));
       return '<div class="cal-list-item" style="border-left-color:' + c.color + '" onclick="calOpenEvent(\'' + escAttr(e.url) + '\')">' +
         '<span class="cal-list-time">📅 event</span>' +
         '<span class="cal-list-label">' + escHtml(e.title || 'Untitled') + '</span>' +
       '</div>';
     }
     const post = item.data;
-    const cfg = PLATFORMS[post.platform] || PLATFORMS.fetlife;
+    const c = colorForOrg(orgLabelOf(post));
     const time = new Date(post.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const id = post.platform + '|' + post.postId;
-    const label = post.groupName || post.accountId || '';
-    return '<div class="cal-list-item" style="border-left-color:' + cfg.color + '" onclick="calOpenPost(\'' + escAttr(id) + '\')">' +
-      '<span class="cal-list-time">' + escHtml(time) + '</span>' +
+    const label = orgLabelOf(post);
+    const icon = postTypeIcon(post.postType);
+    return '<div class="cal-list-item" style="border-left-color:' + c.color + '" onclick="calOpenPost(\'' + escAttr(id) + '\')" title="' + escAttr(postTypeLabel(post.postType)) + '">' +
+      '<span class="cal-list-time">' + icon + ' ' + escHtml(time) + '</span>' +
       '<span class="cal-list-label">' + escHtml(label) + '</span>' +
     '</div>';
   }
@@ -2574,22 +3179,25 @@ https://fetlife.com/events/.../..."></textarea>
   function calRenderChip(item) {
     if (item.kind === 'event') {
       const e = item.data;
-      const c = colorForAccount(e.accountId);
+      const c = colorForOrg(orgLabelOf(e));
       const label = (e.title || '').slice(0, 28);
       return '<div class="cal-chip" style="border-left-color:' + c.color + ';background:' + c.bg + '"' +
-        ' onclick="calOpenEvent(\'' + escAttr(e.url) + '\')" title="' + escAttr((e.title || '') + '\nFrom: ' + (e.groupName || e.accountId)) + '">' +
+        ' onclick="calOpenEvent(\'' + escAttr(e.url) + '\')" title="' + escAttr((e.title || '') + '\nFrom: ' + orgLabelOf(e)) + '">' +
         '<span class="cal-chip-time">📅</span>' +
         '<span class="cal-chip-label">' + escHtml(label) + '</span>' +
       '</div>';
     }
     const post = item.data;
-    const cfg = PLATFORMS[post.platform] || PLATFORMS.fetlife;
+    const c = colorForOrg(orgLabelOf(post));
     const time = new Date(post.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-    const label = (post.groupName || post.accountId || '').slice(0, 24);
+    const label = orgLabelOf(post).slice(0, 24);
     const id = post.platform + '|' + post.postId;
-    return '<div class="cal-chip" style="border-left-color:' + cfg.color + ';background:' + cfg.bg + '"' +
-      ' onclick="calOpenPost(\'' + escAttr(id) + '\')" title="' + escAttr(post.content || '') + '">' +
-      '<span class="cal-chip-time">' + time + '</span>' + platformIcon(cfg) +
+    const icon = postTypeIcon(post.postType);
+    const tooltip = postTypeLabel(post.postType) + (post.content ? ' — ' + post.content.slice(0, 200) : '');
+    return '<div class="cal-chip" style="border-left-color:' + c.color + ';background:' + c.bg + '"' +
+      ' onclick="calOpenPost(\'' + escAttr(id) + '\')" title="' + escAttr(tooltip) + '">' +
+      '<span class="cal-chip-time">' + time + '</span>' +
+      '<span class="cal-chip-type" style="margin:0 2px">' + icon + '</span>' +
       '<span class="cal-chip-label">' + escHtml(label) + '</span>' +
     '</div>';
   }
@@ -2603,13 +3211,15 @@ https://fetlife.com/events/.../..."></textarea>
     const html =
       '<h3>Posts on ' + new Date(dayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' }) + '</h3>' +
       list.map(p => {
-        const cfg = PLATFORMS[p.platform] || PLATFORMS.fetlife;
+        const c = colorForOrg(orgLabelOf(p));
         const time = new Date(p.scheduledAt).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true });
         const id = p.platform + '|' + p.postId;
-        return '<div class="cal-chip" style="border-left-color:' + cfg.color + ';background:' + cfg.bg + ';margin-bottom:6px;padding:6px 8px;font-size:11px"' +
-          ' onclick="calOpenPost(\'' + escAttr(id) + '\')">' +
-          '<span class="cal-chip-time">' + time + '</span>' + platformIcon(cfg) +
-          '<span class="cal-chip-label">' + escHtml((p.groupName || p.accountId || '').slice(0, 36)) + '</span>' +
+        const icon = postTypeIcon(p.postType);
+        return '<div class="cal-chip" style="border-left-color:' + c.color + ';background:' + c.bg + ';margin-bottom:6px;padding:6px 8px;font-size:11px"' +
+          ' onclick="calOpenPost(\'' + escAttr(id) + '\')" title="' + escAttr(postTypeLabel(p.postType)) + '">' +
+          '<span class="cal-chip-time">' + time + '</span>' +
+          '<span style="margin:0 2px">' + icon + '</span>' +
+          '<span class="cal-chip-label">' + escHtml(orgLabelOf(p).slice(0, 36)) + '</span>' +
         '</div>';
       }).join('');
     document.getElementById('cal-side-body').innerHTML = html;
@@ -2624,7 +3234,10 @@ https://fetlife.com/events/.../..."></textarea>
     if (!post) return;
     const cfg = PLATFORMS[platform] || PLATFORMS.fetlife;
     const when = new Date(post.scheduledAt).toLocaleString();
-    const groupTarget = post.groupId ? '<dt>FetLife Group ID</dt><dd>' + escHtml(post.groupId) + '</dd>' : '';
+    const groupName = post.groupId ? lookupGroupName(post.accountId, post.groupId) : null;
+    const groupTarget = post.groupId
+      ? '<dt>Posting to group</dt><dd>' + escHtml(groupName || ('Group ' + post.groupId)) + ' <span style="color:var(--text2);font-size:11px">· id ' + escHtml(post.groupId) + '</span></dd>'
+      : '';
     const eventUrl = post.eventUrl ? '<dt>Event URL</dt><dd><a href="' + escAttr(post.eventUrl) + '" target="_blank" style="color:var(--accent)">' + escHtml(post.eventUrl) + '</a></dd>' : '';
     const title = post.title ? '<dt>Title</dt><dd>' + escHtml(post.title) + '</dd>' : '';
     const bodyText = post.body || post.content || '';
@@ -2657,6 +3270,7 @@ https://fetlife.com/events/.../..."></textarea>
       imagesHtml +
       metricsBlock +
       '<div style="margin-top:14px;display:flex;gap:8px">' +
+        (post.status === 'scheduled' ? '<button class="btn btn-accent" onclick="openPostEditModal(\'' + escAttr(platform) + '\',\'' + escAttr(postId) + '\')">Edit</button>' : '') +
         '<button class="btn btn-danger" onclick="calCancelPost(\'' + escAttr(platform) + '\',\'' + escAttr(postId) + '\')">Cancel post</button>' +
         '<button class="btn" onclick="calClosePanel()">Close</button>' +
       '</div>';
@@ -2665,6 +3279,101 @@ https://fetlife.com/events/.../..."></textarea>
   };
 
   window.calClosePanel = function () { document.getElementById('cal-side').classList.remove('open'); };
+
+  // ── Edit a scheduled post ────────────────────────────────────────────────
+  let postEditCtx = null; // { platform, postId, postType }
+
+  window.openPostEditModal = function (platform, postId) {
+    const post = (allPosts || []).find(p => p.platform === platform && p.postId === postId);
+    if (!post) { showToast('Post not found', 'error'); return; }
+    if (post.status !== 'scheduled') { showToast('Only scheduled posts can be edited', 'error'); return; }
+    postEditCtx = { platform, postId, postType: post.postType || 'status' };
+    const isGroupEvent = post.postType === 'group_event';
+    const isComposer = post.postType === 'status' || post.postType === 'picture';
+    document.getElementById('post-edit-title-row').style.display = isGroupEvent ? 'block' : 'none';
+    document.getElementById('post-edit-body-row').style.display = isGroupEvent ? 'block' : 'none';
+    document.getElementById('post-edit-content-row').style.display = isComposer ? 'block' : 'none';
+    document.getElementById('post-edit-title').value = post.title || '';
+    document.getElementById('post-edit-body').value = post.body || '';
+    document.getElementById('post-edit-content').value = post.content || '';
+    // datetime-local wants 'YYYY-MM-DDTHH:mm' in local time
+    const dt = new Date(post.scheduledAt);
+    const pad = n => String(n).padStart(2, '0');
+    const local = dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()) + 'T' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+    document.getElementById('post-edit-time').value = local;
+    const groupName = post.groupId ? lookupGroupName(post.accountId, post.groupId) : null;
+    const meta = [post.accountId, post.postType || 'status'];
+    if (groupName) meta.push('→ ' + groupName);
+    else if (post.groupId) meta.push('→ group ' + post.groupId);
+    document.getElementById('post-edit-meta').textContent = meta.join(' · ');
+    document.getElementById('post-edit-error').textContent = '';
+    postEditUpdateChars();
+    document.getElementById('post-edit-modal').classList.remove('hidden');
+  };
+
+  window.closePostEditModal = function () {
+    document.getElementById('post-edit-modal').classList.add('hidden');
+    postEditCtx = null;
+  };
+
+  function postEditUpdateChars() {
+    const bodyEl = document.getElementById('post-edit-body');
+    const bodyChars = document.getElementById('post-edit-body-chars');
+    if (bodyEl && bodyChars) bodyChars.textContent = (bodyEl.value || '').length + ' chars';
+    const contentEl = document.getElementById('post-edit-content');
+    const contentChars = document.getElementById('post-edit-content-chars');
+    if (contentEl && contentChars) {
+      const len = (contentEl.value || '').length;
+      contentChars.textContent = len + ' / ' + FL_MAX_CHARS + ' chars';
+      contentChars.classList.toggle('over', len > FL_MAX_CHARS);
+    }
+  }
+
+  window.savePostEdit = async function () {
+    if (!postEditCtx) return;
+    const errEl = document.getElementById('post-edit-error');
+    errEl.textContent = '';
+    const btn = document.getElementById('post-edit-save-btn');
+    const updates = {};
+    if (postEditCtx.postType === 'group_event') {
+      updates.title = document.getElementById('post-edit-title').value.trim();
+      updates.body = document.getElementById('post-edit-body').value.trim();
+      if (!updates.title) { errEl.textContent = 'Title is empty'; return; }
+      if (!updates.body) { errEl.textContent = 'Body is empty'; return; }
+    } else if (postEditCtx.postType === 'status' || postEditCtx.postType === 'picture') {
+      updates.content = document.getElementById('post-edit-content').value.trim();
+      if (!updates.content && postEditCtx.postType !== 'picture') { errEl.textContent = 'Content is empty'; return; }
+      if (updates.content.length > FL_MAX_CHARS) { errEl.textContent = updates.content.length + ' chars exceeds FetLife limit of ' + FL_MAX_CHARS; return; }
+    }
+    const whenVal = document.getElementById('post-edit-time').value;
+    if (!whenVal) { errEl.textContent = 'Pick a schedule time'; return; }
+    const when = new Date(whenVal);
+    if (isNaN(when.getTime())) { errEl.textContent = 'Invalid schedule time'; return; }
+    if (when.getTime() <= Date.now()) { errEl.textContent = 'Schedule time must be in the future'; return; }
+    updates.scheduledAt = when.toISOString();
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const res = await fetch('/api/posts/' + encodeURIComponent(postEditCtx.platform) + '/' + encodeURIComponent(postEditCtx.postId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-ui-token': token },
+        body: JSON.stringify(updates),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
+      showToast('Post updated', 'success');
+      const ctx = postEditCtx;
+      closePostEditModal();
+      // Refresh allPosts so the calendar + cal-side reflect the change, then reopen the
+      // post panel showing the new values.
+      await loadDashboard();
+      calOpenPost(ctx.platform + '|' + ctx.postId);
+    } catch (err) {
+      errEl.textContent = 'Save failed: ' + (err.message || 'unknown');
+    } finally {
+      btn.disabled = false; btn.textContent = orig;
+    }
+  };
 
   function extractDateFromEventUrl(url) {
     const m = (url || '').match(/\/events\/(\d{4})\/(\d{2})\/(\d{2})\//);
@@ -2719,6 +3428,27 @@ https://fetlife.com/events/.../..."></textarea>
     const peers = [...byUrl.values()]
       .sort((a, b) => (b.urlDate || '').localeCompare(a.urlDate || '')); // newest first
 
+    // Scheduled cross-posts for THIS event (group_event posts referencing event.url).
+    // Includes the group name where each one will land so the user can see at a glance
+    // which groups already have something queued.
+    const crossPosts = (allPosts || [])
+      .filter(p => p.postType === 'group_event' && p.status === 'scheduled' && p.eventUrl === event.url)
+      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    const crossPostsHtml = crossPosts.length === 0
+      ? ''
+      : '<div class="compose-label" style="font-size:11px;margin-top:18px;margin-bottom:6px">Scheduled cross-posts (' + crossPosts.length + ')</div>' +
+        '<div style="display:flex;flex-direction:column;gap:4px">' +
+        crossPosts.map(p => {
+          const gName = lookupGroupName(p.accountId, p.groupId) || ('Group ' + (p.groupId || '?'));
+          const when = new Date(p.scheduledAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+          const id = p.platform + '|' + p.postId;
+          return '<div class="cal-list-item" style="border-left-color:' + c.color + '" onclick="calOpenPost(\'' + escAttr(id) + '\')" title="Click to expand this scheduled post">' +
+            '<span class="cal-list-time" style="min-width:120px">' + escHtml(when) + '</span>' +
+            '<span class="cal-list-label">' + escHtml(gName) + '</span>' +
+          '</div>';
+        }).join('') +
+        '</div>';
+
     document.getElementById('cal-side-body').innerHTML =
       '<h3>📅 ' + escHtml(event.title || 'Untitled event') + '</h3>' +
       '<div style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + c.bg + ';color:' + c.color + ';font-size:11px;font-weight:600;margin-bottom:10px">' + escHtml(event.groupName || event.accountId) + '</div>' +
@@ -2731,6 +3461,7 @@ https://fetlife.com/events/.../..."></textarea>
       '<div class="compose-label" style="font-size:11px;margin-top:14px">RSVP Health</div>' +
       '<div id="cal-metrics-display" style="font-size:12px;color:var(--text2);margin-bottom:6px">Click below to fetch latest counts.</div>' +
       '<button class="btn btn-sm" id="cal-metrics-btn" onclick="calRefreshEventMetrics(\'' + escAttr(event.accountId) + '\',\'' + escAttr(event.url) + '\')">Refresh RSVPs</button>' +
+      crossPostsHtml +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;margin-bottom:6px">' +
         '<div class="compose-label" style="font-size:11px;margin:0">Other events from ' + escHtml(event.groupName || event.accountId) + ' (' + peers.length + ')</div>' +
         '<button class="btn btn-sm" style="font-size:11px" onclick="calRefreshPastEvents(\'' + escAttr(event.accountId) + '\',\'' + escAttr(event.url) + '\')">↻ Refresh past events</button>' +
@@ -2880,6 +3611,7 @@ https://fetlife.com/events/.../..."></textarea>
     gpEl('gp-event-meta').textContent = '';
     gpEl('gp-title').value = '';
     gpEl('gp-body').value = '';
+    gpUpdateBodyChars();
     gpEl('gp-group-list').innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:8px 4px">Pick an account first.</div>';
     gpEl('gp-group-count').textContent = '';
     gpFlash('gp-result', '');
@@ -2917,20 +3649,49 @@ https://fetlife.com/events/.../..."></textarea>
   function gpRenderGroups(payload) {
     gpGroups = (payload && payload.groups) || [];
     gpSelectedGroups.clear();
+    gpRenderGroupList();
+    gpEl('gp-group-count').textContent = (gpGroups.length ? gpGroups.length + ' joined' : '') + (payload && payload.fetchedAt ? ' · ' + new Date(payload.fetchedAt).toLocaleString() : '');
+  }
+
+  // Returns the set of groupIds (as strings) that already have a scheduled group_event
+  // post for the currently-selected event + account in the Group Cross-Post form.
+  function gpScheduledGroupIdsForEvent() {
+    const acct = gpEl('gp-account').value;
+    const idx = gpEl('gp-event').value;
+    if (!acct || idx === '') return new Set();
+    const ev = gpEvents[parseInt(idx)];
+    if (!ev) return new Set();
+    const ids = new Set();
+    for (const p of (allPosts || [])) {
+      if (p.status !== 'scheduled') continue;
+      if (p.postType !== 'group_event') continue;
+      if (p.accountId !== acct) continue;
+      if (p.eventUrl !== ev.url) continue;
+      if (p.groupId) ids.add(String(p.groupId));
+    }
+    return ids;
+  }
+
+  function gpRenderGroupList() {
     const list = gpEl('gp-group-list');
     if (!gpGroups.length) {
       list.innerHTML = '<div style="color:var(--text2);font-size:12px;font-family:var(--font-mono);padding:8px 4px">No groups — click Refresh.</div>';
-      gpEl('gp-group-count').textContent = '';
       return;
     }
-    list.innerHTML = gpGroups.map(g =>
-      '<label class="account-check" style="cursor:pointer">' +
-        '<input type="checkbox" data-group-id="' + escHtml(g.id) + '" onchange="gpToggleGroup(this)">' +
-        '<span class="account-check-label">' + escHtml(g.name) + '</span>' +
+    const scheduledIds = gpScheduledGroupIdsForEvent();
+    list.innerHTML = gpGroups.map(g => {
+      const gid = String(g.id);
+      const sel = gpSelectedGroups.has(gid);
+      const isScheduled = scheduledIds.has(gid);
+      const badge = isScheduled
+        ? ' <span style="background:rgba(251,191,36,0.18);color:#fbbf24;font-size:9px;padding:1px 6px;border-radius:8px;text-transform:uppercase;font-weight:600;letter-spacing:0.04em">scheduled</span>'
+        : '';
+      return '<label class="account-check" style="cursor:pointer">' +
+        '<input type="checkbox" data-group-id="' + escHtml(g.id) + '" onchange="gpToggleGroup(this)"' + (sel ? ' checked' : '') + '>' +
+        '<span class="account-check-label">' + escHtml(g.name) + badge + '</span>' +
         '<span class="account-check-handle">id ' + escHtml(g.id) + '</span>' +
-      '</label>'
-    ).join('');
-    gpEl('gp-group-count').textContent = gpGroups.length + ' joined · ' + (payload.fetchedAt ? new Date(payload.fetchedAt).toLocaleString() : '');
+      '</label>';
+    }).join('');
   }
 
   window.gpToggleGroup = function (cb) {
@@ -2987,21 +3748,36 @@ https://fetlife.com/events/.../..."></textarea>
 
   async function gpEventChanged() {
     const idx = gpEl('gp-event').value;
-    if (idx === '') { gpEl('gp-title').value = ''; gpEl('gp-body').value = ''; return; }
+    if (idx === '') {
+      gpEl('gp-title').value = '';
+      gpEl('gp-body').value = '';
+      gpUpdateBodyChars();
+      gpRenderGroupList();
+      return;
+    }
     const ev = gpEvents[parseInt(idx)];
     if (!ev) return;
     const acct = gpEl('gp-account').value;
     gpEl('gp-title').value = gpFormatTitle(ev);
     gpEl('gp-body').value = 'Loading description…';
+    gpUpdateBodyChars();
+    // Anchor the schedule input on the event's month so the datetime-local picker opens
+    // there. The user can still pick any time afterwards.
+    if (ev.urlDate) gpEl('gp-schedule').value = ev.urlDate + 'T10:00';
     gpFlash('gp-error', '');
+    // Refresh allPosts so the "scheduled" badges below reflect anything queued since
+    // the user last visited the dashboard, then re-render the group list with badges.
+    loadDashboard().catch(() => {}).then(() => gpRenderGroupList());
     try {
       const r = await fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events/details?url=' + encodeURIComponent(ev.url),
         { headers: { 'x-ui-token': token } });
       const payload = await r.json();
       if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
       gpEl('gp-body').value = payload.description || '';
+      gpUpdateBodyChars();
     } catch (err) {
       gpEl('gp-body').value = '';
+      gpUpdateBodyChars();
       gpFlash('gp-error', 'Could not load event description: ' + err.message, true);
     }
   }
@@ -3033,16 +3809,59 @@ https://fetlife.com/events/.../..."></textarea>
       const payload = await r.json();
       if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
       const fanout = payload.fanout || [];
-      gpFlash('gp-result',
-        'Scheduled ' + fanout.length + ' group post' + (fanout.length === 1 ? '' : 's') +
+      const summary = 'Scheduled ' + fanout.length + ' group post' + (fanout.length === 1 ? '' : 's') +
         '. First fires ' + new Date(fanout[0].scheduledAt).toLocaleString() +
-        '; last fires ' + new Date(fanout[fanout.length - 1].scheduledAt).toLocaleString() + '.',
-        false);
+        '; last fires ' + new Date(fanout[fanout.length - 1].scheduledAt).toLocaleString() + '.';
+      showToast(summary, 'success');
+      gpResetForm();
+      // Refresh allPosts so any dashboard/Batch-Compose "scheduled" badges reflect the new fanout.
+      loadDashboard().catch(() => {});
     } catch (err) {
       gpFlash('gp-error', 'Schedule failed: ' + err.message, true);
     } finally {
       btn.textContent = orig; btn.disabled = false;
     }
+  }
+
+  function gpResetForm() {
+    // Reset to the same state the user sees when they first land on this view.
+    gpEl('gp-account').value = '';
+    gpAccountChanged(); // clears event select, group list, metadata
+    gpEl('gp-title').value = '';
+    gpEl('gp-body').value = '';
+    gpUpdateBodyChars();
+    gpFlash('gp-error', '');
+    gpFlash('gp-result', '');
+    gpSelectedGroups.clear();
+    // Restore the default schedule time (1 hour out, top of the next minute).
+    const dt = new Date(Date.now() + 3600000); dt.setSeconds(0, 0);
+    gpEl('gp-schedule').value = dt.toISOString().slice(0, 16);
+  }
+
+  function gpUpdateBodyChars() {
+    const ta = document.getElementById('gp-body');
+    const el = document.getElementById('gp-body-chars');
+    if (ta && el) el.textContent = (ta.value || '').length + ' chars';
+  }
+
+  function gpAccountOrToast() {
+    const acct = gpEl('gp-account').value;
+    if (!acct) { showToast('Pick a FetLife account first', 'error'); return null; }
+    return acct;
+  }
+  function gpOpenEventPicker() {
+    const acct = gpAccountOrToast(); if (!acct) return;
+    openEventPickerModal(acct, 'gp-body');
+  }
+  function gpOpenTemplatePicker() {
+    const acct = gpAccountOrToast(); if (!acct) return;
+    openTemplatePickerModal(acct, 'gp-body');
+  }
+  function gpSaveAsTemplate() {
+    const acct = gpAccountOrToast(); if (!acct) return;
+    // Group posts use a separate page on FetLife with no 369 limit; the template still
+    // stores plain text, so save as 'status' so it's loadable from any text composer too.
+    saveCurrentAsTemplate(acct, 'gp-body', 'status');
   }
 </script>
 </body>
