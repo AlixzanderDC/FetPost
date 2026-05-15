@@ -366,12 +366,14 @@ app.get('/accounts/:accountId/templates', auth, async (req, res) => {
 });
 
 app.post('/accounts/:accountId/templates', auth, async (req, res) => {
-  const { name, postType, content } = req.body || {};
-  if (!name || !content) return res.status(400).json({ error: 'name and content required' });
+  const { name, postType, content, images } = req.body || {};
+  const hasImages = Array.isArray(images) && images.length > 0;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  if (!content && !hasImages) return res.status(400).json({ error: 'content or at least one image required' });
   try {
-    const entry = await addTemplate(req.params.accountId, { name, postType, content });
+    const entry = await addTemplate(req.params.accountId, { name, postType, content, images });
     res.json({ success: true, template: entry });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 app.delete('/accounts/:accountId/templates/:id', auth, async (req, res) => {
