@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { launchWithCookies, waitOutCloudflare } from './poster.js';
+import { autoRefreshCookies } from './extractor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FL_BASE = 'https://fetlife.com';
@@ -15,17 +16,32 @@ const GROUPS_DIR = path.join(__dirname, '..', 'data', 'groups');
 const EVENTS_DIR = path.join(__dirname, '..', 'data', 'events');
 
 async function withSession(accountId, fn) {
-  const { browser, context } = await launchWithCookies(accountId, { headless: false });
-  try {
-    const page = await context.newPage();
-    await page.goto(`${FL_BASE}/home`, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2500);
-    if (page.url().includes('/login') || page.url().includes('/sign_in')) {
-      throw new Error(`Not logged in for ${accountId} — refresh cookies`);
+  // Try the session once with current cookies. If FetLife redirects us to /sign_in,
+  // attempt a single passive headless refresh and retry. Headless can extend a still-valid
+  // session but cannot recover a fully-expired one — for that the user has to refresh
+  // manually via VNC. We throw a clearer error in that case.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const { browser, context } = await launchWithCookies(accountId, { headless: false });
+    let page;
+    try {
+      page = await context.newPage();
+      await page.goto(`${FL_BASE}/home`, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(2500);
+      if (page.url().includes('/login') || page.url().includes('/sign_in')) {
+        await browser.close().catch(() => {});
+        if (attempt === 1) {
+          const refreshed = await autoRefreshCookies(accountId);
+          if (refreshed) continue;
+        }
+        throw new Error(`Not logged in for ${accountId} — headless refresh failed, manual VNC refresh needed`);
+      }
+      const result = await fn(page);
+      await browser.close().catch(() => {});
+      return result;
+    } catch (err) {
+      await browser.close().catch(() => {});
+      throw err;
     }
-    return await fn(page);
-  } finally {
-    await browser.close();
   }
 }
 

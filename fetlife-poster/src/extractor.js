@@ -23,28 +23,55 @@ function waitForEnter(message) {
 }
 
 const SIGNAL_FILE = '/tmp/fetpost-cookie-signal';
-async function waitForUiSignal(username) {
-  console.log(`[extractor] Waiting up to 5 minutes for UI "I've logged in" signal for ${username}...`);
+// Wait up to 5 min for one of three things: a UI "Signal Sent" file, OR an auto-detected
+// session cookie (set by FetLife when the user finishes manual login in VNC), OR an explicit
+// timeout. The cookie-poll is what saves us when the user logs in directly in VNC without
+// touching the UI button — without it, the headed browser hangs open after login.
+async function waitForUiSignalOrSession(username, context) {
+  console.log(`[extractor] Waiting up to 5 minutes for UI signal OR session cookie for ${username}…`);
   const deadline = Date.now() + 5 * 60 * 1000;
   while (Date.now() < deadline) {
     try {
       await fs.access(SIGNAL_FILE);
       await fs.unlink(SIGNAL_FILE);
+      console.log(`[extractor] UI signal received for ${username}`);
       return;
     } catch {}
+    if (context) {
+      try {
+        const c = await context.cookies();
+        const session = c.find(x =>
+          (x.name === '_fl_sessionid' || x.name === '_session_id' || x.name === 'remember_user_token')
+          && x.value && x.value.length > 10
+          && x.domain.includes('fetlife.com'));
+        if (session) {
+          // Confirm we're actually past /sign_in on at least one open page so we don't latch
+          // onto a half-set cookie mid-redirect.
+          const pages = context.pages();
+          const stillSigningIn = pages.some(p => {
+            try { const u = p.url(); return u.includes('/sign_in') || u.includes('/login'); }
+            catch { return false; }
+          });
+          if (!stillSigningIn) {
+            console.log(`[extractor] Auto-detected session cookie for ${username} — closing VNC Chrome`);
+            return;
+          }
+        }
+      } catch {}
+    }
     await new Promise(r => setTimeout(r, 1500));
   }
-  throw new Error(`Timed out waiting for UI signal for ${username}`);
+  throw new Error(`Timed out waiting for login for ${username}`);
 }
 
-async function waitForLoginComplete(username) {
+async function waitForLoginComplete(username, context) {
   if (process.env.FETPOST_CRON === '1') {
     throw new Error(`Cron-mode autofill did not produce a session for ${username} — manual VNC refresh needed`);
   }
   if (process.stdin.isTTY) {
     await waitForEnter(`[extractor] Press ENTER once you are logged in (or Ctrl+C to abort): `);
   } else {
-    await waitForUiSignal(username);
+    await waitForUiSignalOrSession(username, context);
   }
 }
 
@@ -54,7 +81,7 @@ const FL_BASE = 'https://fetlife.com';
 
 const delay = (min, max) => new Promise(r => setTimeout(r, min + Math.random() * (max - min)));
 
-async function tryHeadlessRefresh(accountId, username) {
+export async function tryHeadlessRefresh(accountId, username) {
   const savedCookiePath = path.join(COOKIES_DIR, accountId + '.json');
   let existingCookies;
   try {
@@ -125,6 +152,22 @@ async function extractCookiesForAccount(accountId, username, password) {
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     window.chrome = { runtime: {} };
+    // Auto-tick the "Remember me, I'll be back." checkbox on FetLife's /sign_in page so
+    // every login — autofill or manual — leaves a long-lived remember_user_token cookie.
+    // That's what the passive headless refresh later uses to re-establish a session
+    // without needing a new manual login. Re-arm on DOM mutations because React can
+    // re-render the form and lose the checked state.
+    function tickRememberMe() {
+      const cb = document.querySelector('input[name="user[remember_me]"]')
+              || document.querySelector('input[type="checkbox"][name*="remember" i]')
+              || document.querySelector('input[type="checkbox"][id*="remember" i]');
+      if (cb && !cb.checked) {
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+    document.addEventListener('DOMContentLoaded', tickRememberMe);
+    try { new MutationObserver(tickRememberMe).observe(document.documentElement, { childList: true, subtree: true }); } catch {}
   });
 
   const page = await context.newPage();
@@ -140,10 +183,25 @@ async function extractCookiesForAccount(accountId, username, password) {
       await delay(300, 700);
       await page.fill('input[name="user[password]"]', password, { timeout: 5000 });
       await delay(400, 900);
+      // Belt-and-suspenders: also check the Remember-me box explicitly via Playwright
+      // (the init-script MutationObserver should have caught it, but checkbox state can
+      // be lost across re-renders right before submit).
+      try {
+        await page.check('input[name="user[remember_me]"]', { timeout: 1500 });
+        console.log(`[extractor] Ticked "Remember me" for ${username}`);
+      } catch {
+        try {
+          await page.evaluate(() => {
+            const cb = document.querySelector('input[name="user[remember_me]"]')
+                    || document.querySelector('input[type="checkbox"][name*="remember" i]');
+            if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); }
+          });
+        } catch {}
+      }
       await page.click('input[type="submit"], button[type="submit"]', { timeout: 5000 });
       console.log(`[extractor] Submitted credentials for ${username}`);
     } catch {
-      console.log(`[extractor] Autofill not possible — please log in manually in the Chrome window`);
+      console.log(`[extractor] Autofill not possible — please log in manually in the Chrome window (Remember-me will be auto-ticked)`);
     }
 
     // Give the autofill submit ~30s to land a session cookie before we ask for human help.
@@ -165,7 +223,7 @@ async function extractCookiesForAccount(accountId, username, password) {
 
     if (!autoLoggedIn) {
       console.log(`\n[extractor] >>> Autofill didn't complete (likely Cloudflare). Log in manually in the Chrome window. <<<`);
-      await waitForLoginComplete(username);
+      await waitForLoginComplete(username, context);
     } else {
       console.log(`[extractor] Auto-login succeeded for ${username} — no manual step needed`);
     }
@@ -282,6 +340,38 @@ export async function cookiesExistForAccount(accountId) {
   } catch {
     return false;
   }
+}
+
+// ── Auto-recovery: in-process headless refresh for "Not logged in" handlers ──
+// Coalesces concurrent callers per account, then suppresses repeat attempts for 30s
+// so a burst of requests doesn't trigger N headless logins back-to-back. Returns
+// true if a fresh session was written, false otherwise. Never throws.
+const _autoRefreshInFlight = new Map();
+const _autoRefreshCooldown = new Map();
+export async function autoRefreshCookies(accountId) {
+  if (_autoRefreshInFlight.has(accountId)) return _autoRefreshInFlight.get(accountId);
+  const cooldownUntil = _autoRefreshCooldown.get(accountId) || 0;
+  if (Date.now() < cooldownUntil) return false;
+  const p = (async () => {
+    try {
+      const creds = await getCredentials(accountId);
+      if (!creds || !creds.username) return false;
+      console.log(`[auto-refresh] Trying headless refresh for ${accountId}…`);
+      const result = await tryHeadlessRefresh(accountId, creds.username);
+      const ok = !!(result && result.success);
+      if (ok) console.log(`[auto-refresh] Succeeded for ${accountId}`);
+      else console.log(`[auto-refresh] Headless refresh did not produce a session for ${accountId} — manual VNC refresh needed`);
+      return ok;
+    } catch (err) {
+      console.warn(`[auto-refresh] Threw for ${accountId}:`, err.message);
+      return false;
+    } finally {
+      _autoRefreshInFlight.delete(accountId);
+      _autoRefreshCooldown.set(accountId, Date.now() + 30 * 1000);
+    }
+  })();
+  _autoRefreshInFlight.set(accountId, p);
+  return p;
 }
 
 // Run directly if called as a script

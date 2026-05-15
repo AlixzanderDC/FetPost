@@ -304,11 +304,11 @@ curl -s https://api.ipify.org && echo           # NordVPN exit IP, NOT your Drop
 
 FetPost has three scripts that should run on a schedule:
 
-- `src/setup-cookies.js` — silent headless cookie refresh (every other night at 4 AM)
+- `src/refresh-cookies.js` — silent headless cookie refresh (every 12 hours at 4 AM/PM). `setup-cookies.js` is the one-time interactive seeder; `refresh-cookies.js` is the cron entrypoint and writes `data/cookies/_refresh-status.json` for the UI banner. FetLife sessions decay faster than a 48h window can cover, so the cron runs twice a day. Combined with in-process auto-recovery on "Not logged in" errors (see `discovery.js` `withSession` + `extractor.js` `autoRefreshCookies`), this keeps the cookie file warm enough that user-facing operations rarely surface a stale-session error. The remaining case — fully-expired session that headless can't extend — surfaces in the Dashboard "Cookie freshness" widget with a per-account "Refresh now" button that opens VNC Chrome.
 - `src/refresh-tracked-rsvps.js` — refresh RSVP counts for tracked events (every night at 5 AM)
 - `src/refresh-tracked-posts.js` — refresh engagement (loves / super loves / comments / views) for tracked posts (every night at 6 AM)
 
-Install them via `crontab -e`, or build the file from short shell-variable-assembled lines (safer when SSH'd from Windows where long pasted lines get split):
+Install them via `crontab -e`, or build the file from short shell-variable-assembled lines (safer when SSH'd from Windows where long pasted lines get split). The cron needs `DISPLAY=:1`, `XAUTHORITY=/root/.Xauthority`, and `FETPOST_CRON=1` as inherited env vars at the top of the crontab so the headed-with-autofill fallback can run on VNC without hanging on the UI signal:
 
 ```bash
 F=/tmp/fetpost.cron
@@ -316,7 +316,10 @@ P=/root/fetpost/fetlife-poster
 N=/usr/bin/node
 E=--env-file=/root/fetpost/.env
 L=/root/fetpost/.logs
-echo "0 4 */2 * * cd $P && $N $E src/setup-cookies.js >> $L/cookie-refresh.log 2>&1" > $F
+echo "DISPLAY=:1" > $F
+echo "XAUTHORITY=/root/.Xauthority" >> $F
+echo "FETPOST_CRON=1" >> $F
+echo "0 4,16 * * * cd $P && $N $E src/refresh-cookies.js >> $L/cookie-refresh.log 2>&1" >> $F
 echo "0 5 * * * cd $P && $N $E src/refresh-tracked-rsvps.js >> $L/tracked-rsvps.log 2>&1" >> $F
 echo "0 6 * * * cd $P && $N $E src/refresh-tracked-posts.js >> $L/tracked-posts.log 2>&1" >> $F
 crontab $F
