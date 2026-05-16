@@ -64,6 +64,14 @@ async function proxyRequest(serviceKey, method, reqPath, body) {
   return { ok: res.ok, status: res.status, data };
 }
 
+// Append ?progress=1 to a proxied path when the client requested it. Used by every
+// scrape-triggering refresh endpoint so the same proxy works for both sync and progress modes.
+function withProgressFlag(reqPath, req) {
+  return req.query.progress === '1'
+    ? reqPath + (reqPath.includes('?') ? '&' : '?') + 'progress=1'
+    : reqPath;
+}
+
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
 app.get('/api/accounts', requireAuth, async (req, res) => {
@@ -277,6 +285,14 @@ app.post('/api/canva/import-design', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Progress jobs (poll long-running scrapes) ───────────────────────────────
+app.get('/api/fetlife/jobs/:jobId', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/jobs/' + encodeURIComponent(req.params.jobId));
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── FetLife groups + organized events (cross-post discovery) ─────────────────
 
 app.get('/api/fetlife/:accountId/groups', requireAuth, async (req, res) => {
@@ -288,7 +304,7 @@ app.get('/api/fetlife/:accountId/groups', requireAuth, async (req, res) => {
 
 app.post('/api/fetlife/:accountId/groups/refresh', requireAuth, async (req, res) => {
   try {
-    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/groups/refresh');
+    const result = await proxyRequest('fetlife', 'POST', withProgressFlag('/accounts/' + encodeURIComponent(req.params.accountId) + '/groups/refresh', req));
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -310,14 +326,14 @@ app.get('/api/fetlife/:accountId/events/attending', requireAuth, async (req, res
 
 app.post('/api/fetlife/:accountId/events/attending/refresh', requireAuth, async (req, res) => {
   try {
-    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/attending/refresh');
+    const result = await proxyRequest('fetlife', 'POST', withProgressFlag('/accounts/' + encodeURIComponent(req.params.accountId) + '/events/attending/refresh', req));
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/fetlife/:accountId/events/refresh', requireAuth, async (req, res) => {
   try {
-    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/refresh');
+    const result = await proxyRequest('fetlife', 'POST', withProgressFlag('/accounts/' + encodeURIComponent(req.params.accountId) + '/events/refresh', req));
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -346,7 +362,7 @@ app.delete('/api/fetlife/:accountId/events/tracked', requireAuth, async (req, re
 
 app.post('/api/fetlife/:accountId/events/tracked/refresh-all', requireAuth, async (req, res) => {
   try {
-    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/tracked/refresh-all');
+    const result = await proxyRequest('fetlife', 'POST', withProgressFlag('/accounts/' + encodeURIComponent(req.params.accountId) + '/events/tracked/refresh-all', req));
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -376,7 +392,7 @@ app.delete('/api/fetlife/:accountId/posts/tracked', requireAuth, async (req, res
 
 app.post('/api/fetlife/:accountId/posts/tracked/refresh-all', requireAuth, async (req, res) => {
   try {
-    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/posts/tracked/refresh-all');
+    const result = await proxyRequest('fetlife', 'POST', withProgressFlag('/accounts/' + encodeURIComponent(req.params.accountId) + '/posts/tracked/refresh-all', req));
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -420,7 +436,7 @@ app.get('/api/fetlife/:accountId/events/past', requireAuth, async (req, res) => 
 
 app.post('/api/fetlife/:accountId/events/past/refresh', requireAuth, async (req, res) => {
   try {
-    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/past/refresh');
+    const result = await proxyRequest('fetlife', 'POST', withProgressFlag('/accounts/' + encodeURIComponent(req.params.accountId) + '/events/past/refresh', req));
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -216,6 +216,18 @@
     .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
     .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: currentColor; border-radius: 50%; animation: spin 0.6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    /* Scrape-progress modal: indeterminate animated bar + per-stage rows with checkmark/spinner/pending markers. */
+    .scrape-progress-bar { width: 100%; height: 6px; background: var(--bg2); border-radius: 3px; overflow: hidden; position: relative; }
+    .scrape-progress-bar-fill { height: 100%; width: 30%; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: scrape-stripe 1.4s linear infinite; }
+    .scrape-progress-bar-fill.done { animation: none; width: 100%; background: var(--success); }
+    .scrape-progress-bar-fill.error { animation: none; width: 100%; background: var(--danger); }
+    @keyframes scrape-stripe { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+    .scrape-stage-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 12px; font-family: var(--font-mono); line-height: 1.4; }
+    .scrape-stage-icon { flex-shrink: 0; width: 16px; text-align: center; }
+    .scrape-stage-row .scrape-stage-name { color: var(--text1); }
+    .scrape-stage-row.in-progress .scrape-stage-name { color: var(--text0); font-weight: 600; }
+    .scrape-stage-row.error .scrape-stage-name { color: var(--danger); }
+    .scrape-stage-row .scrape-stage-detail { color: var(--text2); font-size: 11px; margin-left: 24px; }
     .mp-base-card { background: var(--bg1); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
     .mp-acct-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px; border: 1px solid var(--border); cursor: pointer; font-size: 12px; font-weight: 500; background: transparent; color: var(--text1); transition: all 0.15s; margin-right: 6px; margin-bottom: 6px; user-select: none; }
     .mp-acct-pill:hover { border-color: var(--border-hover); }
@@ -767,6 +779,23 @@ https://fetlife.com/events/.../..."></textarea>
   </div>
 </div>
 
+<!-- Progress modal for scrape-triggering buttons (event/group/RSVP refreshes) — long-running
+     server-side Playwright scrapes report stage transitions via a polling job; this modal
+     shows them live so the user isn't staring at a frozen button for 30+ seconds. -->
+<div class="modal-overlay hidden" id="scrape-progress-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-title" id="scrape-progress-title">Working…</div>
+    <div id="scrape-progress-subtitle" style="font-size:12px;color:var(--text2);font-family:var(--font-mono);margin-bottom:8px"></div>
+    <div class="scrape-progress-bar"><div class="scrape-progress-bar-fill" id="scrape-progress-bar-fill"></div></div>
+    <div id="scrape-progress-meter" style="margin-top:6px;font-size:11px;color:var(--text2);font-family:var(--font-mono);display:flex;justify-content:space-between"><span id="scrape-progress-counter"></span><span id="scrape-progress-elapsed">0s</span></div>
+    <div id="scrape-progress-stages" style="margin-top:12px;max-height:280px;overflow-y:auto"></div>
+    <div id="scrape-progress-error" style="margin-top:8px;color:var(--danger);font-size:12px;display:none"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="btn" id="scrape-progress-close" onclick="closeScrapeProgressModal()" disabled>Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="add-modal">
   <div class="modal">
     <div class="modal-title" id="modal-title">Add Account</div>
@@ -1111,55 +1140,57 @@ https://fetlife.com/events/.../..."></textarea>
     const orig = btn ? btn.textContent : null;
     if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
     let ok = 0, failed = 0, attendingWarnings = 0;
-    // api() returns JSON even on server-side errors, so we use fetch directly to inspect
-    // status + payload and surface scrape failures (otherwise refresh appears to "succeed"
-    // while the on-disk cache is left untouched).
-    for (const a of fetlifeAccounts) {
+    // One progress modal stays open across the whole multi-account loop; we update the
+    // counter + per-account subtitle as each scrape starts so the user can see which
+    // account is currently being refreshed.
+    openScrapeProgressModal({ label: 'Refresh upcoming events', subtitle: '', counter: 'account 0/' + fetlifeAccounts.length });
+    for (let i = 0; i < fetlifeAccounts.length; i++) {
+      const a = fetlifeAccounts[i];
       try {
-        const res = await fetch('/api/fetlife/' + encodeURIComponent(a.accountId) + '/events/refresh', {
+        const data = await runWithProgress({
+          url: '/api/fetlife/' + encodeURIComponent(a.accountId) + '/events/refresh?progress=1',
           method: 'POST',
-          headers: { 'x-ui-token': token },
+          label: 'Refresh upcoming events',
+          subtitle: (a.groupName || a.accountId) + (a.accountType === 'venue' ? ' · Venue' : ''),
+          counter: 'account ' + (i + 1) + '/' + fetlifeAccounts.length,
+          modalAlreadyOpen: true,
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.error) {
-          failed++;
-          console.warn('[dash] refresh FAILED for', a.accountId, '— HTTP', res.status, data);
+        ok++;
+        const count = (data.events || []).length;
+        if (data.attending) {
+          const attendingCount = (data.attending.events || []).length;
+          console.log('[dash] refresh ok for', a.accountId, '—', count, 'hosted +', attendingCount, 'RSVP\'d event(s)');
+        } else if (data.attendingError) {
+          attendingWarnings++;
+          console.warn('[dash] attending refresh failed for venue', a.accountId, '—', data.attendingError);
         } else {
-          ok++;
-          const count = (data.events || []).length;
-          // For Venue accounts the server also refreshes attending events; log + warn if
-          // that secondary fetch errored (it's non-fatal, hosted refresh already succeeded).
-          if (data.attending) {
-            const attendingCount = (data.attending.events || []).length;
-            console.log('[dash] refresh ok for', a.accountId, '—', count, 'hosted +', attendingCount, 'RSVP\'d event(s), fetchedAt', data.fetchedAt);
-          } else if (data.attendingError) {
-            attendingWarnings++;
-            console.warn('[dash] attending refresh failed for venue', a.accountId, '—', data.attendingError);
-          } else {
-            console.log('[dash] refresh ok for', a.accountId, '—', count, 'event(s), fetchedAt', data.fetchedAt);
-          }
+          console.log('[dash] refresh ok for', a.accountId, '—', count, 'event(s)');
         }
       } catch (err) {
         failed++;
         console.warn('[dash] refresh threw for', a.accountId, err);
+        // Continue to the next account even if one fails — modal already showed the error.
       }
     }
     await loadAllOrganizedEvents();
     if (typeof calRender === 'function') calRender();
-    // If the user is currently in Batch Compose, repopulate the focus event dropdown so
-    // newly-discovered events appear without a view switch.
     if (typeof bcInitFocus === 'function' && document.getElementById('view-batchcompose')?.classList.contains('active')) {
       bcInitFocus();
     }
     if (btn) { btn.disabled = false; btn.textContent = orig; }
     if (failed === 0 && attendingWarnings === 0) showToast('Refreshed events for ' + ok + ' account(s)', 'success');
-    else if (failed === 0 && attendingWarnings > 0) showToast('Refreshed ' + ok + ' account(s) — ' + attendingWarnings + ' venue RSVP refresh failed (see console)', 'info');
-    else showToast(ok + ' ok, ' + failed + ' failed — open devtools console (F12) for per-account errors', 'error');
+    else if (failed === 0 && attendingWarnings > 0) showToast('Refreshed ' + ok + ' account(s) — ' + attendingWarnings + ' venue RSVP refresh failed', 'info');
+    else showToast(ok + ' ok, ' + failed + ' failed — see console (F12) for details', 'error');
   }
 
   async function refreshPastEventsForAccount(accountId) {
     try {
-      await api('POST', '/api/fetlife/' + encodeURIComponent(accountId) + '/events/past/refresh');
+      await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(accountId) + '/events/past/refresh?progress=1',
+        method: 'POST',
+        label: 'Refresh past events',
+        subtitle: accountId,
+      });
       await loadAllPastEvents();
       showToast('Past events refreshed for ' + accountId, 'success');
       return true;
@@ -2215,9 +2246,14 @@ https://fetlife.com/events/.../..."></textarea>
   }
 
   async function trackedPickerRescrape() {
-    document.getElementById('tracked-picker-status').textContent = 'Scraping FetLife (~30s)…';
+    document.getElementById('tracked-picker-status').textContent = 'Scraping FetLife — see progress modal…';
     try {
-      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/past/refresh');
+      await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/past/refresh?progress=1',
+        method: 'POST',
+        label: 'Re-scrape past events',
+        subtitle: insightsAccount,
+      });
       await loadTrackedPickerEvents();
     } catch (err) {
       document.getElementById('tracked-picker-status').textContent = 'Scrape failed: ' + (err.message || 'unknown');
@@ -2243,10 +2279,19 @@ https://fetlife.com/events/.../..."></textarea>
   async function refreshAllTrackedRsvps() {
     if (!insightsAccount) return;
     try {
-      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked/refresh-all');
-      showToast('Tracked RSVPs refresh started in background — check fetlife-poster.log for progress', 'success');
+      const r = await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/tracked/refresh-all?progress=1',
+        method: 'POST',
+        label: 'Refresh tracked RSVPs',
+        subtitle: insightsAccount,
+      });
+      const msg = r && typeof r.processed === 'number'
+        ? 'Refreshed ' + r.processed + '/' + r.total + ' tracked event(s)'
+        : 'Tracked RSVPs refreshed';
+      showToast(msg, 'success');
+      loadInsights();
     } catch (err) {
-      showToast('Failed to start refresh: ' + (err.message || 'unknown'), 'error');
+      showToast('Refresh failed: ' + (err.message || 'unknown'), 'error');
     }
   }
 
@@ -2265,7 +2310,12 @@ https://fetlife.com/events/.../..."></textarea>
     if (!insightsAccount) return;
     document.getElementById('insights-content').innerHTML = '<div class="loading">Re-scraping upcoming events…</div>';
     try {
-      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/refresh');
+      await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/refresh?progress=1',
+        method: 'POST',
+        label: 'Refresh upcoming events',
+        subtitle: insightsAccount,
+      });
       await loadAllOrganizedEvents();
       showToast('Upcoming events refreshed', 'success');
       loadInsights();
@@ -2277,9 +2327,25 @@ https://fetlife.com/events/.../..."></textarea>
   async function refreshInsightsAccount() {
     if (!insightsAccount) return;
     document.getElementById('insights-content').innerHTML = '<div class="loading">Re-scraping upcoming + past events from FetLife (this is the slow one)…</div>';
+    // One progress modal across both scrapes — upcoming first, then past.
+    openScrapeProgressModal({ label: 'Refresh upcoming + past events', subtitle: insightsAccount, counter: 'phase 1/2' });
     try {
-      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/refresh');
-      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/past/refresh');
+      await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/refresh?progress=1',
+        method: 'POST',
+        label: 'Refresh upcoming + past events',
+        subtitle: insightsAccount + ' · upcoming',
+        counter: 'phase 1/2',
+        modalAlreadyOpen: true,
+      });
+      await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/events/past/refresh?progress=1',
+        method: 'POST',
+        label: 'Refresh upcoming + past events',
+        subtitle: insightsAccount + ' · past',
+        counter: 'phase 2/2',
+        modalAlreadyOpen: true,
+      });
       await loadAllOrganizedEvents();
       await loadAllPastEvents();
       showToast('Events refreshed (upcoming + past)', 'success');
@@ -2426,8 +2492,17 @@ https://fetlife.com/events/.../..."></textarea>
 
   async function refreshAllTrackedPosts() {
     try {
-      showToast('Refresh started — this may take a minute per post (25–55s stagger). Reload Insights to see updates.', 'info');
-      await api('POST', '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/posts/tracked/refresh-all');
+      const r = await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(insightsAccount) + '/posts/tracked/refresh-all?progress=1',
+        method: 'POST',
+        label: 'Refresh tracked posts',
+        subtitle: insightsAccount,
+      });
+      const msg = r && typeof r.processed === 'number'
+        ? 'Refreshed ' + r.processed + '/' + r.total + ' tracked post(s)'
+        : 'Tracked posts refreshed';
+      showToast(msg, 'success');
+      loadInsights();
     } catch (err) { showToast('Refresh failed: ' + (err.message || 'unknown'), 'error'); }
   }
 
@@ -3216,6 +3291,122 @@ https://fetlife.com/events/.../..."></textarea>
 
   // ── Utilities ─────────────────────────────────────────────────────────────
   function showToast(msg, type) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'show ' + (type || 'success'); setTimeout(() => t.className = '', 4000); }
+
+  // ── Scrape progress modal ─────────────────────────────────────────────────
+  // Generic helper for any button that triggers a server-side Playwright scrape (events
+  // refresh, RSVP refresh, group refresh, tracked refresh-all, etc.). The server creates
+  // a progress job, reports stages, and we poll /api/fetlife/jobs/:jobId for updates.
+  //
+  // Usage:
+  //   await runWithProgress({
+  //     label: 'Refresh upcoming events',
+  //     subtitle: a.accountId,
+  //     url: '/api/fetlife/' + accountId + '/events/refresh?progress=1',
+  //     method: 'POST',
+  //     counter: 'account 2/4',  // optional, multi-account loops set this externally
+  //   });  // resolves to the server's result payload; rejects on error
+  let scrapeProgressState = { pollTimer: null, elapsedTimer: null, jobId: null, startedAt: 0, error: null };
+
+  function openScrapeProgressModal({ label, subtitle, counter }) {
+    document.getElementById('scrape-progress-title').textContent = label || 'Working…';
+    document.getElementById('scrape-progress-subtitle').textContent = subtitle || '';
+    document.getElementById('scrape-progress-counter').textContent = counter || '';
+    document.getElementById('scrape-progress-elapsed').textContent = '0s';
+    document.getElementById('scrape-progress-stages').innerHTML = '';
+    document.getElementById('scrape-progress-error').style.display = 'none';
+    document.getElementById('scrape-progress-error').textContent = '';
+    const fill = document.getElementById('scrape-progress-bar-fill');
+    fill.classList.remove('done', 'error');
+    document.getElementById('scrape-progress-close').disabled = true;
+    document.getElementById('scrape-progress-modal').classList.remove('hidden');
+  }
+  function closeScrapeProgressModal() {
+    document.getElementById('scrape-progress-modal').classList.add('hidden');
+    if (scrapeProgressState.pollTimer) clearInterval(scrapeProgressState.pollTimer);
+    if (scrapeProgressState.elapsedTimer) clearInterval(scrapeProgressState.elapsedTimer);
+    scrapeProgressState = { pollTimer: null, elapsedTimer: null, jobId: null, startedAt: 0, error: null };
+  }
+  function setScrapeProgressSubtitle(s) { document.getElementById('scrape-progress-subtitle').textContent = s || ''; }
+  function setScrapeProgressCounter(c) { document.getElementById('scrape-progress-counter').textContent = c || ''; }
+  function setScrapeProgressLabel(l) { document.getElementById('scrape-progress-title').textContent = l || ''; }
+
+  function renderScrapeStages(job) {
+    const wrap = document.getElementById('scrape-progress-stages');
+    if (!job || !job.stages) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = job.stages.map(s => {
+      const icon = s.status === 'done' ? '✓' : s.status === 'error' ? '✗' : '<span class="spinner"></span>';
+      const cls = s.status === 'done' ? '' : s.status === 'error' ? 'error' : 'in-progress';
+      const detail = s.detail ? '<div class="scrape-stage-detail">' + escHtml(s.detail) + '</div>' : '';
+      const errLine = s.error ? '<div class="scrape-stage-detail" style="color:var(--danger)">' + escHtml(s.error) + '</div>' : '';
+      return '<div class="scrape-stage-row ' + cls + '"><span class="scrape-stage-icon">' + icon + '</span><div style="flex:1"><span class="scrape-stage-name">' + escHtml(s.name) + '</span>' + detail + errLine + '</div></div>';
+    }).join('');
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+
+  async function pollProgressJob(jobId) {
+    try {
+      const res = await fetch('/api/fetlife/jobs/' + encodeURIComponent(jobId), { headers: { 'x-ui-token': token } });
+      if (!res.ok) return { status: 'error', error: 'job not found (HTTP ' + res.status + ')' };
+      return await res.json();
+    } catch (err) {
+      return { status: 'error', error: err.message || 'poll failed' };
+    }
+  }
+
+  async function runWithProgress({ url, method = 'POST', body = null, label, subtitle, counter, modalAlreadyOpen = false }) {
+    if (!modalAlreadyOpen) openScrapeProgressModal({ label, subtitle, counter });
+    else { if (label) setScrapeProgressLabel(label); if (subtitle !== undefined) setScrapeProgressSubtitle(subtitle); if (counter !== undefined) setScrapeProgressCounter(counter); }
+    // Kick off the request (server returns { async: true, jobId } immediately because the URL has ?progress=1)
+    const opts = { method, headers: { 'x-ui-token': token } };
+    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    let kicked;
+    try { kicked = await fetch(url, opts).then(r => r.json()); }
+    catch (err) {
+      scrapeProgressError(err.message || 'kickoff failed');
+      throw err;
+    }
+    if (!kicked || !kicked.async || !kicked.jobId) {
+      // Server didn't honor ?progress=1 — fall back to treating the response as the final result.
+      const fill = document.getElementById('scrape-progress-bar-fill');
+      fill.classList.add('done');
+      document.getElementById('scrape-progress-close').disabled = false;
+      return kicked;
+    }
+    scrapeProgressState.jobId = kicked.jobId;
+    scrapeProgressState.startedAt = Date.now();
+    // Elapsed clock — 250ms tick is plenty.
+    scrapeProgressState.elapsedTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - scrapeProgressState.startedAt) / 1000);
+      document.getElementById('scrape-progress-elapsed').textContent = s + 's';
+    }, 250);
+    // Poll job status every 500ms.
+    return await new Promise((resolve, reject) => {
+      scrapeProgressState.pollTimer = setInterval(async () => {
+        const job = await pollProgressJob(scrapeProgressState.jobId);
+        renderScrapeStages(job);
+        if (job.status === 'done') {
+          clearInterval(scrapeProgressState.pollTimer); scrapeProgressState.pollTimer = null;
+          clearInterval(scrapeProgressState.elapsedTimer); scrapeProgressState.elapsedTimer = null;
+          document.getElementById('scrape-progress-bar-fill').classList.add('done');
+          document.getElementById('scrape-progress-close').disabled = false;
+          resolve(job.result || {});
+        } else if (job.status === 'error') {
+          clearInterval(scrapeProgressState.pollTimer); scrapeProgressState.pollTimer = null;
+          clearInterval(scrapeProgressState.elapsedTimer); scrapeProgressState.elapsedTimer = null;
+          scrapeProgressError(job.error || 'unknown error');
+          reject(new Error(job.error || 'scrape failed'));
+        }
+      }, 500);
+    });
+  }
+
+  function scrapeProgressError(msg) {
+    document.getElementById('scrape-progress-bar-fill').classList.add('error');
+    const errEl = document.getElementById('scrape-progress-error');
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+    document.getElementById('scrape-progress-close').disabled = false;
+  }
   function escHtml(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
   if (token) showApp();
@@ -3895,10 +4086,12 @@ https://fetlife.com/events/.../..."></textarea>
     btn.textContent = '…'; btn.disabled = true;
     gpFlash('gp-error', '');
     try {
-      const r = await fetch('/api/fetlife/' + encodeURIComponent(acct) + '/groups/refresh',
-        { method: 'POST', headers: { 'x-ui-token': token } });
-      const payload = await r.json();
-      if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
+      const payload = await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(acct) + '/groups/refresh?progress=1',
+        method: 'POST',
+        label: 'Refresh groups',
+        subtitle: acct,
+      });
       gpRenderGroups(payload);
     } catch (err) {
       gpFlash('gp-error', 'Group refresh failed: ' + err.message, true);
@@ -3914,10 +4107,12 @@ https://fetlife.com/events/.../..."></textarea>
     btn.textContent = '…'; btn.disabled = true;
     gpFlash('gp-error', '');
     try {
-      const r = await fetch('/api/fetlife/' + encodeURIComponent(acct) + '/events/refresh',
-        { method: 'POST', headers: { 'x-ui-token': token } });
-      const payload = await r.json();
-      if (!r.ok) throw new Error(payload.error || ('HTTP ' + r.status));
+      const payload = await runWithProgress({
+        url: '/api/fetlife/' + encodeURIComponent(acct) + '/events/refresh?progress=1',
+        method: 'POST',
+        label: 'Refresh upcoming events',
+        subtitle: acct,
+      });
       gpRenderEvents(payload);
     } catch (err) {
       gpFlash('gp-error', 'Event refresh failed: ' + err.message, true);

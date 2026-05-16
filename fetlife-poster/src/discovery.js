@@ -9,33 +9,38 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { launchWithCookies, waitOutCloudflare } from './poster.js';
 import { autoRefreshCookies } from './extractor.js';
+import { noopReporter } from './progress.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FL_BASE = 'https://fetlife.com';
 const GROUPS_DIR = path.join(__dirname, '..', 'data', 'groups');
 const EVENTS_DIR = path.join(__dirname, '..', 'data', 'events');
 
-async function withSession(accountId, fn) {
+async function withSession(accountId, fn, { reporter = noopReporter() } = {}) {
   // Try the session once with current cookies. If FetLife redirects us to /sign_in,
   // attempt a single passive headless refresh and retry. Headless can extend a still-valid
   // session but cannot recover a fully-expired one — for that the user has to refresh
   // manually via VNC. We throw a clearer error in that case.
   for (let attempt = 1; attempt <= 2; attempt++) {
+    reporter.stage('Opening browser session', attempt > 1 ? `retry ${attempt}` : null);
     const { browser, context } = await launchWithCookies(accountId, { headless: false });
     let page;
     try {
       page = await context.newPage();
+      reporter.stage('Bypassing Cloudflare on /home');
       await page.goto(`${FL_BASE}/home`, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(2500);
       if (page.url().includes('/login') || page.url().includes('/sign_in')) {
         await browser.close().catch(() => {});
         if (attempt === 1) {
+          reporter.stage('Session expired — attempting headless cookie refresh');
           const refreshed = await autoRefreshCookies(accountId);
-          if (refreshed) continue;
+          if (refreshed) { reporter.done('refreshed'); continue; }
         }
         throw new Error(`Not logged in for ${accountId} — headless refresh failed, manual VNC refresh needed`);
       }
-      const result = await fn(page);
+      reporter.done();
+      const result = await fn(page, reporter);
       await browser.close().catch(() => {});
       return result;
     } catch (err) {
@@ -47,13 +52,15 @@ async function withSession(accountId, fn) {
 
 // ── Joined groups ─────────────────────────────────────────────────────────────
 
-export async function listJoinedGroups(accountId) {
-  return withSession(accountId, async (page) => {
+export async function listJoinedGroups(accountId, opts = {}) {
+  return withSession(accountId, async (page, reporter) => {
+    reporter.stage('Loading /home/groups');
     await page.goto(`${FL_BASE}/home/groups`, { waitUntil: 'domcontentloaded' });
     await waitOutCloudflare(page, 30000);
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(2500);
 
+    reporter.stage('Parsing group cards');
     return await page.$$eval('a[href*="/groups/"]', (anchors) => {
       const seen = new Map();
       for (const a of anchors) {
@@ -68,11 +75,13 @@ export async function listJoinedGroups(accountId) {
       }
       return [...seen.values()];
     });
-  });
+  }, opts);
 }
 
-export async function refreshGroupsForAccount(accountId) {
-  const groups = await listJoinedGroups(accountId);
+export async function refreshGroupsForAccount(accountId, opts = {}) {
+  const reporter = opts.reporter || noopReporter();
+  const groups = await listJoinedGroups(accountId, opts);
+  reporter.stage('Saving cached groups', `${groups.length} group(s)`);
   await fs.mkdir(GROUPS_DIR, { recursive: true });
   const out = { accountId, fetchedAt: new Date().toISOString(), groups };
   await fs.writeFile(path.join(GROUPS_DIR, `${accountId}.json`), JSON.stringify(out, null, 2));
@@ -87,13 +96,15 @@ export async function readCachedGroups(accountId) {
 
 // ── Organized events ──────────────────────────────────────────────────────────
 
-export async function listOrganizedEvents(accountId) {
-  return withSession(accountId, async (page) => {
+export async function listOrganizedEvents(accountId, opts = {}) {
+  return withSession(accountId, async (page, reporter) => {
+    reporter.stage('Loading /events/organizing');
     await page.goto(`${FL_BASE}/events/organizing`, { waitUntil: 'domcontentloaded' });
     await waitOutCloudflare(page, 30000);
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(2500);
 
+    reporter.stage('Parsing event cards');
     const events = await page.$$eval('h3 a[href*="/events/"][title]', (anchors) => {
       const seen = new Map();
       for (const a of anchors) {
@@ -130,8 +141,9 @@ export async function listOrganizedEvents(accountId) {
       const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       return [...seen.values()].filter(e => e.urlDate >= todayStr);
     });
+    reporter.done(`${events.length} upcoming event(s)`);
     return events;
-  });
+  }, opts);
 }
 
 // ── Past organized events (events you've already hosted) ─────────────────────
@@ -167,8 +179,9 @@ async function scrapePastEventsPage(page) {
   });
 }
 
-export async function listPastOrganizedEvents(accountId) {
-  return withSession(accountId, async (page) => {
+export async function listPastOrganizedEvents(accountId, opts = {}) {
+  return withSession(accountId, async (page, reporter) => {
+    reporter.stage('Loading /events/organizing/past');
     await page.goto(`${FL_BASE}/events/organizing/past`, { waitUntil: 'domcontentloaded' });
     await waitOutCloudflare(page, 30000);
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
@@ -178,6 +191,7 @@ export async function listPastOrganizedEvents(accountId) {
     // to register without first clicking, which could fire a stray navigation.
     try { await page.mouse.move(400, 400); } catch {}
 
+    reporter.stage('Scrolling to load all past events');
     let lastCount = 0;
     let stable = 0;
     const maxIterations = 80;
@@ -221,13 +235,17 @@ export async function listPastOrganizedEvents(accountId) {
       console.log('[discovery] Final page state:', JSON.stringify(dims));
     } catch {}
 
+    reporter.stage('Parsing past-event cards');
     const events = await scrapePastEventsPage(page);
+    reporter.done(`${events.length} past event(s)`);
     return events.sort((a, b) => (b.urlDate || '').localeCompare(a.urlDate || ''));
-  });
+  }, opts);
 }
 
-export async function refreshPastEventsForAccount(accountId) {
-  const events = await listPastOrganizedEvents(accountId);
+export async function refreshPastEventsForAccount(accountId, opts = {}) {
+  const reporter = opts.reporter || noopReporter();
+  const events = await listPastOrganizedEvents(accountId, opts);
+  reporter.stage('Saving past-event cache', `${events.length} event(s)`);
   await fs.mkdir(EVENTS_DIR, { recursive: true });
   const out = { accountId, fetchedAt: new Date().toISOString(), events };
   await fs.writeFile(path.join(EVENTS_DIR, `${accountId}-past.json`), JSON.stringify(out, null, 2));
@@ -240,8 +258,10 @@ export async function readCachedPastEvents(accountId) {
   } catch { return null; }
 }
 
-export async function refreshEventsForAccount(accountId) {
-  const events = await listOrganizedEvents(accountId);
+export async function refreshEventsForAccount(accountId, opts = {}) {
+  const reporter = opts.reporter || noopReporter();
+  const events = await listOrganizedEvents(accountId, opts);
+  reporter.stage('Saving upcoming-event cache', `${events.length} event(s)`);
   await fs.mkdir(EVENTS_DIR, { recursive: true });
   const out = { accountId, fetchedAt: new Date().toISOString(), events };
   await fs.writeFile(path.join(EVENTS_DIR, `${accountId}.json`), JSON.stringify(out, null, 2));
@@ -256,12 +276,14 @@ export async function readCachedEvents(accountId) {
 
 // ── Attending events (events the account RSVP'd "going" / "interested") ──────
 
-async function scrapeEventListPage(page, listUrl) {
+async function scrapeEventListPage(page, listUrl, reporter = noopReporter()) {
+  reporter.stage('Loading ' + listUrl.replace(FL_BASE, ''));
   await page.goto(listUrl, { waitUntil: 'domcontentloaded' });
   await waitOutCloudflare(page, 30000);
   await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(2500);
 
+  reporter.stage('Parsing event cards');
   return await page.$$eval('h3 a[href*="/events/"][title], a[href*="/events/"][title]', (anchors) => {
     const seen = new Map();
     for (const a of anchors) {
@@ -294,18 +316,22 @@ async function scrapeEventListPage(page, listUrl) {
   });
 }
 
-export async function listAttendingEvents(accountId) {
-  return withSession(accountId, async (page) => {
+export async function listAttendingEvents(accountId, opts = {}) {
+  return withSession(accountId, async (page, reporter) => {
     // /events/rsvps is FetLife's unified list of every event the account RSVP'd to
     // (Going + Interested + Maybe). The older /events/going + /events/interested
     // tabs are partial views — using /rsvps gives venue accounts the complete
     // "promoter events" picture.
-    return await scrapeEventListPage(page, `${FL_BASE}/events/rsvps`);
-  });
+    const events = await scrapeEventListPage(page, `${FL_BASE}/events/rsvps`, reporter);
+    reporter.done(`${events.length} RSVP'd event(s)`);
+    return events;
+  }, opts);
 }
 
-export async function refreshAttendingEventsForAccount(accountId) {
-  const events = await listAttendingEvents(accountId);
+export async function refreshAttendingEventsForAccount(accountId, opts = {}) {
+  const reporter = opts.reporter || noopReporter();
+  const events = await listAttendingEvents(accountId, opts);
+  reporter.stage('Saving RSVP\'d-event cache', `${events.length} event(s)`);
   await fs.mkdir(EVENTS_DIR, { recursive: true });
   const out = { accountId, fetchedAt: new Date().toISOString(), events };
   await fs.writeFile(path.join(EVENTS_DIR, `${accountId}-attending.json`), JSON.stringify(out, null, 2));

@@ -25,6 +25,7 @@ import {
   listTrackedPosts, addTrackedPosts, removeTrackedPost, refreshAllTrackedPosts,
 } from './tracked-posts.js';
 import { listTemplates, addTemplate, removeTemplate } from './templates.js';
+import { getJob, startBackgroundJob } from './progress.js';
 
 const app = express();
 const PORT = 3747;
@@ -40,6 +41,31 @@ function auth(req, res, next) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();
+}
+
+// ── Progress jobs (polling-based stage tracking for long scrapes) ─────────────
+
+app.get('/jobs/:jobId', auth, (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found or expired' });
+  res.json(job);
+});
+
+/**
+ * Endpoints opt into stage-tracked async execution with ?progress=1. With the flag the
+ * endpoint creates an in-memory job, runs the work fire-and-forget with a stage reporter,
+ * and responds immediately with { async: true, jobId }. The client then polls /jobs/:jobId.
+ * Without the flag the endpoint runs synchronously and returns the result as before
+ * (preserves cron/headless callers that don't render progress).
+ */
+function withProgressOrSync(req, res, label, meta, work) {
+  if (req.query.progress === '1') {
+    const jobId = startBackgroundJob(label, meta, reporter => work(reporter));
+    return res.json({ async: true, jobId });
+  }
+  // Sync path — pass a noop-style "fake" reporter via undefined opts.reporter so work()
+  // can be the exact same code path.
+  work().then(result => res.json(result)).catch(err => res.status(500).json({ error: err.message }));
 }
 
 // ── Account management ────────────────────────────────────────────────────────
@@ -226,13 +252,11 @@ app.get('/accounts/:accountId/groups', auth, async (req, res) => {
   }
 });
 
-app.post('/accounts/:accountId/groups/refresh', auth, async (req, res) => {
-  try {
-    const result = await refreshGroupsForAccount(req.params.accountId);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+app.post('/accounts/:accountId/groups/refresh', auth, (req, res) => {
+  const accountId = req.params.accountId;
+  withProgressOrSync(req, res, `Refresh groups · ${accountId}`, { accountId, kind: 'groups' },
+    (reporter) => refreshGroupsForAccount(accountId, { reporter })
+  );
 });
 
 app.get('/accounts/:accountId/events', auth, async (req, res) => {
@@ -244,25 +268,26 @@ app.get('/accounts/:accountId/events', auth, async (req, res) => {
   }
 });
 
-app.post('/accounts/:accountId/events/refresh', auth, async (req, res) => {
-  try {
-    const accountId = req.params.accountId;
-    const result = await refreshEventsForAccount(accountId);
-    // For Venue accounts, also pull RSVP'd ("promoter") events so the picker is complete.
-    // Failures here are non-fatal — the hosted refresh already succeeded.
-    let attending = null, attendingError = null;
-    const acct = await getAccount(accountId);
-    if (acct && acct.accountType === 'venue') {
-      try {
-        attending = await refreshAttendingEventsForAccount(accountId);
-      } catch (err) {
-        attendingError = err.message;
+app.post('/accounts/:accountId/events/refresh', auth, (req, res) => {
+  const accountId = req.params.accountId;
+  withProgressOrSync(req, res, `Refresh upcoming events · ${accountId}`, { accountId, kind: 'events' },
+    async (reporter) => {
+      const result = await refreshEventsForAccount(accountId, { reporter });
+      // For Venue accounts, also pull RSVP'd ("promoter") events so the picker is complete.
+      // Failures here are non-fatal — the hosted refresh already succeeded.
+      let attending = null, attendingError = null;
+      const acct = await getAccount(accountId);
+      if (acct && acct.accountType === 'venue') {
+        try {
+          if (reporter) reporter.stage('Venue: pulling RSVP\'d events');
+          attending = await refreshAttendingEventsForAccount(accountId, { reporter });
+        } catch (err) {
+          attendingError = err.message;
+        }
       }
+      return { ...result, attending, attendingError };
     }
-    res.json({ ...result, attending, attendingError });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  );
 });
 
 // Attending (RSVP'd) events — only meaningful for Venue accounts, but the endpoint is
@@ -276,13 +301,11 @@ app.get('/accounts/:accountId/events/attending', auth, async (req, res) => {
   }
 });
 
-app.post('/accounts/:accountId/events/attending/refresh', auth, async (req, res) => {
-  try {
-    const result = await refreshAttendingEventsForAccount(req.params.accountId);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+app.post('/accounts/:accountId/events/attending/refresh', auth, (req, res) => {
+  const accountId = req.params.accountId;
+  withProgressOrSync(req, res, `Refresh RSVP'd events · ${accountId}`, { accountId, kind: 'attending' },
+    (reporter) => refreshAttendingEventsForAccount(accountId, { reporter })
+  );
 });
 
 // Aggregator for the Event Insights view: returns every event (upcoming + past) organized
@@ -352,11 +375,24 @@ app.delete('/accounts/:accountId/events/tracked', auth, async (req, res) => {
 });
 
 // Long-running: return immediately, scrape in background.
-app.post('/accounts/:accountId/events/tracked/refresh-all', auth, async (req, res) => {
+app.post('/accounts/:accountId/events/tracked/refresh-all', auth, (req, res) => {
+  const accountId = req.params.accountId;
+  if (req.query.progress === '1') {
+    const jobId = startBackgroundJob(`Refresh tracked RSVPs · ${accountId}`, { accountId, kind: 'tracked-rsvps' }, async (reporter) => {
+      reporter.stage('Loading tracked events list');
+      return await refreshAllTrackedRsvps(accountId, {
+        onProgress: ({ done, total, url }) => {
+          reporter.stage(`Scraping ${done}/${total}`, url || null);
+        },
+      });
+    });
+    return res.json({ async: true, jobId });
+  }
+  // Legacy fire-and-forget — return immediately, scrape in background, no progress.
   res.json({ success: true, message: 'Refresh started in background — check fetlife-poster.log for progress' });
-  refreshAllTrackedRsvps(req.params.accountId)
-    .then(r => console.log(`[tracked] Done for ${req.params.accountId}: ${r.processed}/${r.total} processed`))
-    .catch(err => console.error(`[tracked] Refresh failed for ${req.params.accountId}:`, err.message));
+  refreshAllTrackedRsvps(accountId)
+    .then(r => console.log(`[tracked] Done for ${accountId}: ${r.processed}/${r.total} processed`))
+    .catch(err => console.error(`[tracked] Refresh failed for ${accountId}:`, err.message));
 });
 
 // ── Tracked posts (engagement tracking for sent posts) ──────────────────────
@@ -393,12 +429,25 @@ app.delete('/accounts/:accountId/posts/tracked', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Long-running: return immediately, scrape in background.
-app.post('/accounts/:accountId/posts/tracked/refresh-all', auth, async (req, res) => {
+// Long-running: return immediately, scrape in background. With ?progress=1 the work is
+// staged into a progress job the UI can poll.
+app.post('/accounts/:accountId/posts/tracked/refresh-all', auth, (req, res) => {
+  const accountId = req.params.accountId;
+  if (req.query.progress === '1') {
+    const jobId = startBackgroundJob(`Refresh tracked posts · ${accountId}`, { accountId, kind: 'tracked-posts' }, async (reporter) => {
+      reporter.stage('Loading tracked posts list');
+      return await refreshAllTrackedPosts(accountId, {
+        onProgress: ({ done, total, url }) => {
+          reporter.stage(`Scraping ${done}/${total}`, url || null);
+        },
+      });
+    });
+    return res.json({ async: true, jobId });
+  }
   res.json({ success: true, message: 'Refresh started in background — check fetlife-poster.log for progress' });
-  refreshAllTrackedPosts(req.params.accountId)
-    .then(r => console.log(`[tracked-posts] Done for ${req.params.accountId}: ${r.processed}/${r.total} processed`))
-    .catch(err => console.error(`[tracked-posts] Refresh failed for ${req.params.accountId}:`, err.message));
+  refreshAllTrackedPosts(accountId)
+    .then(r => console.log(`[tracked-posts] Done for ${accountId}: ${r.processed}/${r.total} processed`))
+    .catch(err => console.error(`[tracked-posts] Refresh failed for ${accountId}:`, err.message));
 });
 
 // ── Templates (per-account saved post bodies) ───────────────────────────────
@@ -437,13 +486,11 @@ app.get('/accounts/:accountId/events/past', auth, async (req, res) => {
   }
 });
 
-app.post('/accounts/:accountId/events/past/refresh', auth, async (req, res) => {
-  try {
-    const result = await refreshPastEventsForAccount(req.params.accountId);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+app.post('/accounts/:accountId/events/past/refresh', auth, (req, res) => {
+  const accountId = req.params.accountId;
+  withProgressOrSync(req, res, `Refresh past events · ${accountId}`, { accountId, kind: 'past-events' },
+    (reporter) => refreshPastEventsForAccount(accountId, { reporter })
+  );
 });
 
 app.get('/accounts/:accountId/events/details', auth, async (req, res) => {
