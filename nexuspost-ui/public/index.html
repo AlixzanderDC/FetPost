@@ -785,6 +785,15 @@ https://fetlife.com/events/.../..."></textarea>
       <label class="form-label">Group / Display Name</label>
       <input class="form-input" type="text" id="modal-group-name" placeholder="e.g. My Group Name" />
     </div>
+    <div class="form-group" id="modal-account-type-group">
+      <label class="form-label">Account Type</label>
+      <select class="form-select" id="modal-account-type">
+        <option value="organization">Organization (hosts its own events)</option>
+        <option value="venue">Venue (hosts AND promotes events RSVP'd to)</option>
+        <option value="individual">Individual (personal account)</option>
+      </select>
+      <div class="form-hint">Venue accounts also surface RSVP'd events ("Promoter Event") in the event picker.</div>
+    </div>
     <div id="fl-fields">
       <div class="form-group">
         <label class="form-label">Username / Email</label>
@@ -1062,11 +1071,23 @@ https://fetlife.com/events/.../..."></textarea>
     allOrganizedEvents = [];
     const fetlifeAccounts = (allAccounts || []).filter(a => a.platform === 'fetlife');
     for (const a of fetlifeAccounts) {
+      const meta = { accountId: a.accountId, groupName: a.groupName || a.accountId };
       try {
         const data = await api('GET', '/api/fetlife/' + encodeURIComponent(a.accountId) + '/events');
-        const events = (data.events || []).map(e => Object.assign({}, e, { accountId: a.accountId, groupName: a.groupName || a.accountId }));
+        const events = (data.events || []).map(e => Object.assign({}, e, meta, { eventSource: 'hosted' }));
         allOrganizedEvents.push(...events);
       } catch { /* ignore per-account failures */ }
+      // For Venue accounts, also pull RSVP'd events so the picker + dashboard surface them
+      // as "Promoter Event"s alongside the venue's own "Internal Event"s.
+      if (a.accountType === 'venue') {
+        try {
+          const data = await api('GET', '/api/fetlife/' + encodeURIComponent(a.accountId) + '/events/attending');
+          const events = (data.events || []).map(e => Object.assign({}, e, meta, { eventSource: 'attending' }));
+          // De-dupe against hosted: an account could in theory both host and RSVP to the same event.
+          const seen = new Set(allOrganizedEvents.filter(x => x.accountId === a.accountId).map(x => x.url));
+          for (const e of events) if (!seen.has(e.url)) allOrganizedEvents.push(e);
+        } catch { /* ignore per-account failures */ }
+      }
     }
     if (typeof calRender === 'function') calRender();
   }
@@ -1089,7 +1110,7 @@ https://fetlife.com/events/.../..."></textarea>
     const btn = document.getElementById('dash-refresh-events-btn');
     const orig = btn ? btn.textContent : null;
     if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
-    let ok = 0, failed = 0;
+    let ok = 0, failed = 0, attendingWarnings = 0;
     // api() returns JSON even on server-side errors, so we use fetch directly to inspect
     // status + payload and surface scrape failures (otherwise refresh appears to "succeed"
     // while the on-disk cache is left untouched).
@@ -1106,7 +1127,17 @@ https://fetlife.com/events/.../..."></textarea>
         } else {
           ok++;
           const count = (data.events || []).length;
-          console.log('[dash] refresh ok for', a.accountId, '—', count, 'event(s), fetchedAt', data.fetchedAt);
+          // For Venue accounts the server also refreshes attending events; log + warn if
+          // that secondary fetch errored (it's non-fatal, hosted refresh already succeeded).
+          if (data.attending) {
+            const attendingCount = (data.attending.events || []).length;
+            console.log('[dash] refresh ok for', a.accountId, '—', count, 'hosted +', attendingCount, 'RSVP\'d event(s), fetchedAt', data.fetchedAt);
+          } else if (data.attendingError) {
+            attendingWarnings++;
+            console.warn('[dash] attending refresh failed for venue', a.accountId, '—', data.attendingError);
+          } else {
+            console.log('[dash] refresh ok for', a.accountId, '—', count, 'event(s), fetchedAt', data.fetchedAt);
+          }
         }
       } catch (err) {
         failed++;
@@ -1121,7 +1152,8 @@ https://fetlife.com/events/.../..."></textarea>
       bcInitFocus();
     }
     if (btn) { btn.disabled = false; btn.textContent = orig; }
-    if (failed === 0) showToast('Refreshed events for ' + ok + ' account(s)', 'success');
+    if (failed === 0 && attendingWarnings === 0) showToast('Refreshed events for ' + ok + ' account(s)', 'success');
+    else if (failed === 0 && attendingWarnings > 0) showToast('Refreshed ' + ok + ' account(s) — ' + attendingWarnings + ' venue RSVP refresh failed (see console)', 'info');
     else showToast(ok + ' ok, ' + failed + ' failed — open devtools console (F12) for per-account errors', 'error');
   }
 
@@ -1358,19 +1390,21 @@ https://fetlife.com/events/.../..."></textarea>
 
   // ── Batch Compose ──────────────────────────────────────────────────────────
 
-  let batchRows = [];   // [{ id, accountId, postType, content, scheduledAt, image }]
+  let batchRows = [];   // [{ id, accountId, postType, content, scheduledAt, image, eventUrl }]
   let batchSeq = 0;
 
   function bcNewRow() {
-    // New rows inherit the focus header's account + a default time in the event's month
-    // so the user doesn't have to set the same values over and over.
+    // New rows inherit the focus header's account + event so the user doesn't have to set
+    // the same values over and over. The eventUrl is structural — picking an event from the
+    // per-row selector also auto-pins the schedule date to the event's date.
     return {
       id: 'bc-' + (++batchSeq),
       accountId: bcFocusAccount || '',
       postType: 'status',
       content: '',
       scheduledAt: bcDefaultRowTime(),
-      image: null,   // { data, mimeType, name } for image rows
+      image: null,           // { data, mimeType, name } for image rows
+      eventUrl: bcFocusEventUrl || '',  // optional — structurally pin this row to an event
     };
   }
 
@@ -1412,6 +1446,7 @@ https://fetlife.com/events/.../..."></textarea>
     if (!bcFocusAccount) {
       evSel.innerHTML = '<option value="">— pick an account first —</option>';
       evSel.disabled = true;
+      evSel.style.display = '';
       bcFocusEventUrl = null;
       bcRenderFocusList();
       // Don't auto-blank existing row accounts on clear — leave whatever the user set.
@@ -1423,6 +1458,19 @@ https://fetlife.com/events/.../..."></textarea>
     if (Array.isArray(batchRows)) {
       for (const r of batchRows) r.accountId = bcFocusAccount;
     }
+    // For Venue accounts, each row gets its own event picker (with Internal + Promoter
+    // events). A single global focus event would force the same event onto every row,
+    // which defeats the per-row workflow venues need. Hide it.
+    const acct = (allAccounts || []).find(a => a.platform === 'fetlife' && a.accountId === bcFocusAccount);
+    const isVenue = !!(acct && acct.accountType === 'venue');
+    if (isVenue) {
+      evSel.style.display = 'none';
+      bcFocusEventUrl = null;
+      bcRender();
+      bcRenderFocusList();
+      return;
+    }
+    evSel.style.display = '';
     const events = (allOrganizedEvents || [])
       .filter(e => e.accountId === bcFocusAccount && !e.isPast)
       .sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
@@ -1523,6 +1571,31 @@ https://fetlife.com/events/.../..."></textarea>
       const acctOptions = fetlifeAccounts.map(a =>
         '<option value="' + escAttr(a.accountId) + '"' + (r.accountId === a.accountId ? ' selected' : '') + '>' + escHtml(a.groupName || a.accountId) + '</option>'
       ).join('');
+      // Per-row event selector. For Venue accounts the list includes both hosted ("Internal")
+      // and RSVP'd ("Promoter") events — that's already merged into allOrganizedEvents
+      // upstream via loadAllOrganizedEvents. Picking an event auto-pins the row's schedule
+      // date and tags the post structurally with that event.
+      const acctForRow = r.accountId
+        ? (allAccounts || []).find(a => a.platform === 'fetlife' && a.accountId === r.accountId)
+        : null;
+      const isVenueRow = !!(acctForRow && acctForRow.accountType === 'venue');
+      const rowEvents = (allOrganizedEvents || [])
+        .filter(e => e.accountId === r.accountId && !e.isPast)
+        .sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+      const rowEventOptions = rowEvents.length === 0
+        ? '<option value="" disabled>— no events cached —</option>'
+        : '<option value="">— none —</option>' + rowEvents.map(e => {
+            const tag = isVenueRow ? (e.eventSource === 'attending' ? '[Promoter] ' : '[Internal] ') : '';
+            const date = e.urlDate ? e.urlDate + ' · ' : '';
+            return '<option value="' + escAttr(e.url) + '"' + (r.eventUrl === e.url ? ' selected' : '') + '>' + escHtml(tag + date + (e.title || e.url)) + '</option>';
+          }).join('');
+      const rowEventSel = '<select class="form-select" style="font-size:11px;padding:2px 6px;height:auto" onchange="bcSetRowEvent(\'' + escAttr(r.id) + '\', this.value)" title="Pin this row to an event — auto-fills the schedule date">' + rowEventOptions + '</select>';
+      // Inline list of OTHER scheduled posts already referencing the row's selected event —
+      // includes posts from any account in the UI (e.g. the venue The Crucible can see the
+      // organizer Crucible Rendezvous's scheduled post for the same event, since they share
+      // the FetLife event URL). Renders only when an event is picked and at least one match
+      // exists, so silent rows stay clean.
+      const rowEventScheduledHtml = r.eventUrl ? bcRowEventScheduledHtml(r.id, r.eventUrl) : '';
       const isImage = r.postType === 'picture';
       const imgPreview = r.image
         ? '<div style="margin-top:6px;display:flex;align-items:center;gap:8px"><img src="data:' + r.image.mimeType + ';base64,' + r.image.data + '" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border)"><span style="font-size:11px;color:var(--text2)">' + escHtml(r.image.name || 'image') + '</span><button class="btn btn-sm btn-danger" onclick="bcClearImage(\'' + escAttr(r.id) + '\')">×</button></div>'
@@ -1541,7 +1614,7 @@ https://fetlife.com/events/.../..."></textarea>
           '<div style="font-size:12px;color:var(--text2);font-family:var(--font-mono)">Post ' + (i + 1) + '</div>' +
           '<button class="btn btn-sm btn-danger" onclick="bcRemoveRow(\'' + escAttr(r.id) + '\')">Remove</button>' +
         '</div>' +
-        '<div style="display:grid;grid-template-columns:1fr 140px 220px;gap:8px;margin-bottom:8px">' +
+        '<div style="display:grid;grid-template-columns:1fr 140px 220px;gap:8px;margin-bottom:6px">' +
           '<select class="form-select" onchange="bcSet(\'' + escAttr(r.id) + '\',\'accountId\',this.value)">' +
             '<option value="">Account…</option>' + acctOptions +
           '</select>' +
@@ -1551,6 +1624,11 @@ https://fetlife.com/events/.../..."></textarea>
           '</select>' +
           '<input type="datetime-local" value="' + escAttr(r.scheduledAt || '') + '" onchange="bcSet(\'' + escAttr(r.id) + '\',\'scheduledAt\',this.value)" />' +
         '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:11px;color:var(--text2)">' +
+          '<span style="font-family:var(--font-mono)">📅 Event:</span>' +
+          rowEventSel +
+        '</div>' +
+        rowEventScheduledHtml +
         '<textarea class="compose-text" id="bc-ta-' + escAttr(r.id) + '" rows="3" maxlength="369" placeholder="' + (isImage ? 'Caption…' : 'Write your post…') + '" oninput="bcSet(\'' + escAttr(r.id) + '\',\'content\',this.value)">' + escHtml(r.content || '') + '</textarea>' +
         rowCharBar +
         rowToolbar +
@@ -1583,6 +1661,52 @@ https://fetlife.com/events/.../..."></textarea>
   function bcClearImage(rowId) {
     const r = batchRows.find(x => x.id === rowId);
     if (r) { r.image = null; bcRender(); }
+  }
+
+  // Render the per-row "other scheduled posts referencing this event" preview. Spans
+  // accounts — for The Crucible (venue), this surfaces the organizer Crucible Rendezvous's
+  // post for the same event, since they share the FetLife event URL. Items are clickable
+  // and reuse the dashboard calOpenPost expander.
+  function bcRowEventScheduledHtml(rowId, eventUrl) {
+    const matches = (allPosts || [])
+      .filter(p => {
+        if (p.status !== 'scheduled') return false;
+        if (p.eventUrl === eventUrl) return true;
+        if (typeof p.content === 'string' && p.content.includes(eventUrl)) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
+    if (matches.length === 0) return '';
+    const items = matches.map(p => {
+      const c = colorForOrg(orgLabelOf(p));
+      const when = new Date(p.scheduledAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+      const id = p.platform + '|' + p.postId;
+      const typeLabel = p.postType === 'group_event' ? 'group post' : (p.postType || 'status');
+      const label = orgLabelOf(p) + ' · ' + typeLabel;
+      return '<div class="cal-list-item" style="border-left-color:' + c.color + ';margin:2px 0" onclick="calOpenPost(\'' + escAttr(id) + '\')" title="Click to expand">' +
+        '<span class="cal-list-time">' + escHtml(when) + '</span>' +
+        '<span class="cal-list-label">' + escHtml(label) + '</span>' +
+      '</div>';
+    }).join('');
+    return '<div style="margin:0 0 10px 0;padding:6px 8px;background:var(--bg2);border-radius:6px">' +
+      '<div style="font-size:10px;color:var(--text2);font-family:var(--font-mono);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.4px">' +
+        matches.length + ' post' + (matches.length === 1 ? '' : 's') + ' already scheduled for this event' +
+      '</div>' + items +
+    '</div>';
+  }
+
+  // Pin a Batch Compose row to a specific event. Auto-anchors the schedule date to the
+  // event's date (10am, since FetLife party events usually run evening — gives the user a
+  // sane starting point that's still visibly defaulted, not "scheduled for the event itself").
+  function bcSetRowEvent(rowId, eventUrl) {
+    const r = batchRows.find(x => x.id === rowId);
+    if (!r) return;
+    r.eventUrl = eventUrl || '';
+    if (eventUrl) {
+      const ev = (allOrganizedEvents || []).find(e => e.url === eventUrl);
+      if (ev && ev.urlDate) r.scheduledAt = ev.urlDate + 'T10:00';
+    }
+    bcRender();
   }
 
   async function bcHandleImage(event, rowId) {
@@ -1647,6 +1771,7 @@ https://fetlife.com/events/.../..."></textarea>
         postType: r.postType,
       };
       if (r.postType === 'picture' && r.image) body.images = [r.image];
+      if (r.eventUrl) body.eventUrl = r.eventUrl;
       try {
         const data = await api('POST', '/api/posts', body);
         const results = data.results || [];
@@ -1755,24 +1880,50 @@ https://fetlife.com/events/.../..."></textarea>
     const list = document.getElementById('event-picker-list');
     list.innerHTML = '<div class="loading">Loading events…</div>';
     modal.classList.remove('hidden');
+    const acct = (allAccounts || []).find(a => a.platform === 'fetlife' && a.accountId === accountId);
+    const isVenue = acct && acct.accountType === 'venue';
     try {
-      const data = await api('GET', '/api/fetlife/' + encodeURIComponent(accountId) + '/events');
-      const events = (data.events || []).filter(e => !e.isPast).sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
+      const hostedReq = api('GET', '/api/fetlife/' + encodeURIComponent(accountId) + '/events');
+      const attendingReq = isVenue
+        ? api('GET', '/api/fetlife/' + encodeURIComponent(accountId) + '/events/attending').catch(() => ({ events: [] }))
+        : Promise.resolve({ events: [] });
+      const [hostedData, attendingData] = await Promise.all([hostedReq, attendingReq]);
+      const hosted = (hostedData.events || []).map(e => Object.assign({}, e, { eventSource: 'hosted' }));
+      const attending = (attendingData.events || []).map(e => Object.assign({}, e, { eventSource: 'attending' }));
+      // Hosted wins on duplicate URLs — venues sometimes RSVP to their own events.
+      const seen = new Set(hosted.map(e => e.url));
+      const combined = hosted.concat(attending.filter(e => !seen.has(e.url)));
+      const events = combined.filter(e => !e.isPast).sort((a, b) => (a.urlDate || '').localeCompare(b.urlDate || ''));
       if (events.length === 0) {
-        list.innerHTML = '<div style="font-size:12px;color:var(--text2);padding:8px">No upcoming events cached for this account. Refresh discovery from Accounts → ↻ Events.</div>';
+        const hint = isVenue
+          ? 'No upcoming events cached (hosted or RSVP\'d). Refresh from Dashboard → ↻ Refresh upcoming events.'
+          : 'No upcoming events cached for this account. Refresh from Dashboard → ↻ Refresh upcoming events.';
+        list.innerHTML = '<div style="font-size:12px;color:var(--text2);padding:8px">' + hint + '</div>';
         return;
       }
       list.innerHTML = events.map(e => {
         const date = e.urlDate || '';
         const title = escHtml(e.title || e.url);
+        const badge = isVenue ? eventSourceBadge(e.eventSource) : '';
         return '<div style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer" onclick="pickEventUrl(\'' + escAttr(e.url) + '\')">' +
-          '<div style="font-size:13px;color:var(--text0)">' + title + '</div>' +
+          '<div style="font-size:13px;color:var(--text0);display:flex;align-items:center;gap:6px">' + badge + '<span>' + title + '</span></div>' +
           '<div style="font-size:11px;color:var(--text2);font-family:var(--font-mono);margin-top:2px">' + escHtml(date) + ' · ' + escHtml(e.url.replace('https://fetlife.com', '')) + '</div>' +
         '</div>';
       }).join('');
     } catch (err) {
       list.innerHTML = '<div style="color:var(--danger);padding:8px">Failed to load: ' + escHtml(err.message || 'unknown') + '</div>';
     }
+  }
+
+  // Visual tag distinguishing a Venue's own events ("Internal Event") from events it RSVP'd
+  // to and is helping promote ("Promoter Event"). Only shown when the account is a Venue —
+  // for Organization/Individual accounts every event is hosted, so the badge would be noise.
+  function eventSourceBadge(eventSource) {
+    if (eventSource === 'attending') {
+      return '<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:rgba(99,102,241,0.18);color:#a5b4fc;font-size:10px;font-weight:600;letter-spacing:0.3px">Promoter Event</span>';
+    }
+    // default: hosted
+    return '<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:rgba(220,38,38,0.18);color:#fca5a5;font-size:10px;font-weight:600;letter-spacing:0.3px">Internal Event</span>';
   }
 
   function closeEventPickerModal() { document.getElementById('event-picker-modal').classList.add('hidden'); }
@@ -1808,7 +1959,13 @@ https://fetlife.com/events/.../..."></textarea>
     } else if (targetId.startsWith('bc-ta-')) {
       const rowId = targetId.slice('bc-ta-'.length);
       const row = (batchRows || []).find(r => r.id === rowId);
-      if (row) { row.scheduledAt = dt; if (typeof bcRender === 'function') bcRender(); }
+      if (row) {
+        row.scheduledAt = dt;
+        // Also structurally pin the row to this event so the per-row event selector reflects
+        // the choice the user just made.
+        row.eventUrl = eventUrl;
+        if (typeof bcRender === 'function') bcRender();
+      }
     } else if (targetId === 'gp-body') {
       const el = document.getElementById('gp-schedule');
       if (el) el.value = dt;
@@ -2458,7 +2615,10 @@ https://fetlife.com/events/.../..."></textarea>
       const testBadge = testResult === 'ok' ? '<span class="test-result test-ok">✓ Connected</span>' :
                         testResult === 'fail' ? '<span class="test-result test-fail">✗ Failed</span>' :
                         testResult === 'pending' ? '<span class="test-result test-pending"><span class="spinner"></span></span>' : '';
-      return '<div class="account-row"><div class="account-avatar" style="background:' + cfg.bg + ';color:' + cfg.color + '">' + initials + '</div><div class="account-info"><div class="account-name">' + escHtml(a.groupName || a.accountId) + '</div><div class="account-handle">' + escHtml(identifier) + '</div><div class="account-meta">ID: ' + escHtml(a.accountId) + (a.lastStatus ? ' · ' + a.lastStatus : '') + '</div></div>' + testBadge + '<div class="account-row-actions"><button class="btn btn-sm btn-success" onclick="testAccount(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Test</button>' + (platform !== 'bluesky' ? '<button class="btn btn-sm" onclick="refreshCookies(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Refresh cookies</button>' : '') + '<button class="btn btn-sm btn-danger" onclick="removeAccount(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Remove</button></div></div>';
+      const typeSelector = platform === 'fetlife'
+        ? '<div class="account-type-selector" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);margin-top:4px"><label for="acct-type-' + escAttr(a.accountId) + '" style="font-family:var(--font-mono)">Type:</label><select class="form-select" id="acct-type-' + escAttr(a.accountId) + '" style="padding:2px 6px;font-size:11px;height:auto;width:auto" onchange="changeAccountType(\'' + platform + '\',\'' + escAttr(a.accountId) + '\', this.value)"><option value="organization"' + ((a.accountType || 'organization') === 'organization' ? ' selected' : '') + '>Organization</option><option value="venue"' + (a.accountType === 'venue' ? ' selected' : '') + '>Venue</option><option value="individual"' + (a.accountType === 'individual' ? ' selected' : '') + '>Individual</option></select></div>'
+        : '';
+      return '<div class="account-row"><div class="account-avatar" style="background:' + cfg.bg + ';color:' + cfg.color + '">' + initials + '</div><div class="account-info"><div class="account-name">' + escHtml(a.groupName || a.accountId) + '</div><div class="account-handle">' + escHtml(identifier) + '</div><div class="account-meta">ID: ' + escHtml(a.accountId) + (a.lastStatus ? ' · ' + a.lastStatus : '') + '</div>' + typeSelector + '</div>' + testBadge + '<div class="account-row-actions"><button class="btn btn-sm btn-success" onclick="testAccount(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Test</button>' + (platform !== 'bluesky' ? '<button class="btn btn-sm" onclick="refreshCookies(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Refresh cookies</button>' : '') + '<button class="btn btn-sm btn-danger" onclick="removeAccount(\'' + platform + '\',\'' + escHtml(a.accountId) + '\')">Remove</button></div></div>';
     }).join('');
   }
 
@@ -2488,6 +2648,28 @@ https://fetlife.com/events/.../..."></textarea>
     }
   }
 
+  async function changeAccountType(platform, accountId, accountType) {
+    try {
+      const res = await fetch('/api/accounts/' + platform + '/' + encodeURIComponent(accountId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'x-ui-token': token },
+        body: JSON.stringify({ accountType }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        showToast('Failed to update type: ' + (data.error || 'unknown'), 'error');
+        return;
+      }
+      // Update in-memory account record so subsequent renders pick up the new type
+      // without a full /api/accounts reload.
+      const acct = (allAccounts || []).find(a => a.platform === platform && a.accountId === accountId);
+      if (acct) acct.accountType = accountType;
+      showToast('Account type updated to ' + accountType, 'success');
+    } catch (err) {
+      showToast('Failed to update type: ' + (err.message || 'unknown'), 'error');
+    }
+  }
+
   async function removeAccount(platform, accountId) {
     if (!confirm('Remove ' + accountId + '?')) return;
     const data = await api('DELETE', '/api/accounts/' + platform + '/' + encodeURIComponent(accountId));
@@ -2499,6 +2681,8 @@ https://fetlife.com/events/.../..."></textarea>
     document.getElementById('add-modal').classList.remove('hidden');
     document.getElementById('modal-platform').value = platform;
     ['modal-account-id','modal-group-name','modal-username','modal-password','modal-handle','modal-app-password'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+    const typeEl = document.getElementById('modal-account-type');
+    if (typeEl) typeEl.value = 'organization';
     document.getElementById('modal-error').textContent = '';
     document.getElementById('modal-save-btn').textContent = 'Add Account';
     document.getElementById('modal-save-btn').disabled = false;
@@ -2511,6 +2695,9 @@ https://fetlife.com/events/.../..."></textarea>
     const platform = document.getElementById('modal-platform').value;
     document.getElementById('fl-fields').style.display = platform === 'bluesky' ? 'none' : 'block';
     document.getElementById('bs-fields').style.display = platform === 'bluesky' ? 'block' : 'none';
+    // Account type only applies to FetLife (Venue/Org/Individual is a FetLife concept).
+    const typeGroup = document.getElementById('modal-account-type-group');
+    if (typeGroup) typeGroup.style.display = platform === 'fetlife' ? 'block' : 'none';
     const cfg = PLATFORMS[platform] || PLATFORMS.fetlife;
     document.getElementById('modal-title').textContent = 'Add ' + cfg.label + ' Account';
   }
@@ -2519,10 +2706,11 @@ https://fetlife.com/events/.../..."></textarea>
     const platform = document.getElementById('modal-platform').value;
     const accountId = document.getElementById('modal-account-id').value.trim();
     const groupName = document.getElementById('modal-group-name').value.trim();
+    const accountType = (document.getElementById('modal-account-type') || {}).value || 'organization';
     const errEl = document.getElementById('modal-error');
     const btn = document.getElementById('modal-save-btn');
     if (!accountId) { errEl.textContent = 'Account ID is required'; return; }
-    let body = { platform, accountId, groupName };
+    let body = { platform, accountId, groupName, accountType };
     if (platform === 'bluesky') {
       const handle = document.getElementById('modal-handle').value.trim();
       const appPassword = document.getElementById('modal-app-password').value.trim();

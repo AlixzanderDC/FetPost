@@ -86,23 +86,43 @@ async function saveMeta(meta) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function storeCredentials(accountId, { username, password, groupName }) {
+const VALID_ACCOUNT_TYPES = ['venue', 'organization', 'individual'];
+
+export async function storeCredentials(accountId, { username, password, groupName, accountType }) {
   const [creds, meta] = await Promise.all([loadAllCredentials(), loadMeta()]);
 
   // Credentials stored encrypted
   creds[accountId] = { username, password };
   await saveAllCredentials(creds);
 
+  // Preserve accountType if it already exists (e.g. re-adding to refresh password)
+  const existing = meta[accountId] || {};
+  const type = accountType && VALID_ACCOUNT_TYPES.includes(accountType)
+    ? accountType
+    : (existing.accountType && VALID_ACCOUNT_TYPES.includes(existing.accountType) ? existing.accountType : 'organization');
+
   // Metadata (no passwords) stored plaintext for easy listing
   meta[accountId] = {
     accountId,
     username,
     groupName: groupName || null,
-    addedAt: new Date().toISOString(),
-    lastUsed: null,
-    lastStatus: null,
+    accountType: type,
+    addedAt: existing.addedAt || new Date().toISOString(),
+    lastUsed: existing.lastUsed || null,
+    lastStatus: existing.lastStatus || null,
   };
   await saveMeta(meta);
+}
+
+export async function updateAccountType(accountId, accountType) {
+  if (!VALID_ACCOUNT_TYPES.includes(accountType)) {
+    throw new Error('accountType must be one of: ' + VALID_ACCOUNT_TYPES.join(', '));
+  }
+  const meta = await loadMeta();
+  if (!meta[accountId]) throw new Error('Unknown account: ' + accountId);
+  meta[accountId].accountType = accountType;
+  await saveMeta(meta);
+  return meta[accountId];
 }
 
 export async function getCredentials(accountId) {
@@ -113,7 +133,18 @@ export async function getCredentials(accountId) {
 
 export async function listAccounts() {
   const meta = await loadMeta();
-  return Object.values(meta);
+  // Backfill accountType for legacy accounts that predate the venue/org/individual distinction.
+  return Object.values(meta).map(a => ({
+    ...a,
+    accountType: VALID_ACCOUNT_TYPES.includes(a.accountType) ? a.accountType : 'organization',
+  }));
+}
+
+export async function getAccount(accountId) {
+  const meta = await loadMeta();
+  const a = meta[accountId];
+  if (!a) return null;
+  return { ...a, accountType: VALID_ACCOUNT_TYPES.includes(a.accountType) ? a.accountType : 'organization' };
 }
 
 export async function removeAccount(accountId) {

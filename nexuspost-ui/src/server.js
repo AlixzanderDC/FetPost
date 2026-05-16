@@ -83,7 +83,7 @@ app.get('/api/accounts', requireAuth, async (req, res) => {
 });
 
 app.post('/api/accounts', requireAuth, async (req, res) => {
-  const { platform, accountId, groupName, username, password, handle, appPassword } = req.body;
+  const { platform, accountId, groupName, username, password, handle, appPassword, accountType } = req.body;
   if (!platform || !accountId) return res.status(400).json({ error: 'platform and accountId required' });
   try {
     let body;
@@ -92,7 +92,7 @@ app.post('/api/accounts', requireAuth, async (req, res) => {
       body = { accountId, handle, appPassword, groupName };
     } else {
       if (!username || !password) return res.status(400).json({ error: 'username and password required' });
-      body = { accountId, username, password, groupName };
+      body = { accountId, username, password, groupName, accountType };
     }
     const result = await proxyRequest(platform, 'POST', '/accounts', body);
     res.status(result.status).json(result.data);
@@ -103,6 +103,15 @@ app.delete('/api/accounts/:platform/:accountId', requireAuth, async (req, res) =
   const { platform, accountId } = req.params;
   try {
     const result = await proxyRequest(platform, 'DELETE', '/accounts/' + encodeURIComponent(accountId));
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Update mutable account fields (e.g. accountType: venue|organization|individual)
+app.patch('/api/accounts/:platform/:accountId', requireAuth, async (req, res) => {
+  const { platform, accountId } = req.params;
+  try {
+    const result = await proxyRequest(platform, 'PATCH', '/accounts/' + encodeURIComponent(accountId), req.body);
     res.status(result.status).json(result.data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -291,6 +300,21 @@ app.get('/api/fetlife/:accountId/events', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Attending (RSVP'd) events — used by Venue accounts in the event picker as "Promoter Event"s.
+app.get('/api/fetlife/:accountId/events/attending', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'GET', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/attending');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/fetlife/:accountId/events/attending/refresh', requireAuth, async (req, res) => {
+  try {
+    const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/attending/refresh');
+    res.status(result.status).json(result.data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/fetlife/:accountId/events/refresh', requireAuth, async (req, res) => {
   try {
     const result = await proxyRequest('fetlife', 'POST', '/accounts/' + encodeURIComponent(req.params.accountId) + '/events/refresh');
@@ -431,7 +455,7 @@ app.get('/api/queue', requireAuth, async (req, res) => {
 });
 
 app.post('/api/posts', requireAuth, async (req, res) => {
-  const { platforms, accountIds, content, scheduledAt, images, media, postType, eventDetails } = req.body;
+  const { platforms, accountIds, content, scheduledAt, images, media, postType, eventDetails, eventUrl } = req.body;
   if (!platforms || !accountIds || !scheduledAt) return res.status(400).json({ error: 'platforms, accountIds, scheduledAt required' });
 
   const results = [];
@@ -449,6 +473,7 @@ app.post('/api/posts', requireAuth, async (req, res) => {
         if (platform === 'fetlife') {
           body.postType = postType || 'status';
           if (eventDetails) body.eventDetails = eventDetails;
+          if (eventUrl) body.eventUrl = eventUrl;
           if (images && images.length) body.images = images;
         } else if (platform === 'bluesky') {
           if (images && images.length) body.images = images;

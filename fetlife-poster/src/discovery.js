@@ -296,11 +296,11 @@ async function scrapeEventListPage(page, listUrl) {
 
 export async function listAttendingEvents(accountId) {
   return withSession(accountId, async (page) => {
-    // Try /events/going first; some FetLife layouts use /events/interested as the
-    // RSVP'd-but-not-organized list. Fall back if the first returns nothing.
-    const going = await scrapeEventListPage(page, `${FL_BASE}/events/going`);
-    if (going.length > 0) return going;
-    return await scrapeEventListPage(page, `${FL_BASE}/events/interested`);
+    // /events/rsvps is FetLife's unified list of every event the account RSVP'd to
+    // (Going + Interested + Maybe). The older /events/going + /events/interested
+    // tabs are partial views — using /rsvps gives venue accounts the complete
+    // "promoter events" picture.
+    return await scrapeEventListPage(page, `${FL_BASE}/events/rsvps`);
   });
 }
 

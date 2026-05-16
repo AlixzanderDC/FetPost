@@ -5,12 +5,13 @@
 
 import express from 'express';
 import { schedulePost, scheduleGroupEventBatch, cancelPost, getQueue, clearJobsByStatus, retryJob, updateJob } from './scheduler.js';
-import { storeCredentials, listAccounts, removeAccount, testLogin } from './credentials.js';
+import { storeCredentials, listAccounts, removeAccount, testLogin, updateAccountType, getAccount } from './credentials.js';
 import { getPostHistory } from './history.js';
 import {
   refreshGroupsForAccount, readCachedGroups,
   refreshEventsForAccount, readCachedEvents,
   refreshPastEventsForAccount, readCachedPastEvents,
+  refreshAttendingEventsForAccount, readCachedAttendingEvents,
   getEventDetails,
 } from './discovery.js';
 import {
@@ -45,12 +46,12 @@ function auth(req, res, next) {
 
 // Add or update a FetLife account
 app.post('/accounts', auth, async (req, res) => {
-  const { accountId, username, password, groupName } = req.body;
+  const { accountId, username, password, groupName, accountType } = req.body;
   if (!accountId || !username || !password) {
     return res.status(400).json({ error: 'accountId, username, password required' });
   }
   try {
-    await storeCredentials(accountId, { username, password, groupName });
+    await storeCredentials(accountId, { username, password, groupName, accountType });
     res.json({ success: true, accountId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -64,6 +65,18 @@ app.get('/accounts', auth, async (req, res) => {
     res.json({ accounts });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Update mutable account fields (currently just accountType)
+app.patch('/accounts/:accountId', auth, async (req, res) => {
+  const { accountType } = req.body || {};
+  if (!accountType) return res.status(400).json({ error: 'accountType required' });
+  try {
+    const updated = await updateAccountType(req.params.accountId, accountType);
+    res.json({ success: true, account: updated });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -129,7 +142,7 @@ app.post('/posts', auth, async (req, res) => {
   }
 
   try {
-    await schedulePost({ postId, accountId, content, scheduledAt: schedDate, postType: postType || 'status', eventDetails, images: images || [] });
+    await schedulePost({ postId, accountId, content, scheduledAt: schedDate, postType: postType || 'status', eventDetails, images: images || [], eventUrl });
     res.json({ success: true, postId, scheduledAt: schedDate.toISOString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -233,7 +246,39 @@ app.get('/accounts/:accountId/events', auth, async (req, res) => {
 
 app.post('/accounts/:accountId/events/refresh', auth, async (req, res) => {
   try {
-    const result = await refreshEventsForAccount(req.params.accountId);
+    const accountId = req.params.accountId;
+    const result = await refreshEventsForAccount(accountId);
+    // For Venue accounts, also pull RSVP'd ("promoter") events so the picker is complete.
+    // Failures here are non-fatal — the hosted refresh already succeeded.
+    let attending = null, attendingError = null;
+    const acct = await getAccount(accountId);
+    if (acct && acct.accountType === 'venue') {
+      try {
+        attending = await refreshAttendingEventsForAccount(accountId);
+      } catch (err) {
+        attendingError = err.message;
+      }
+    }
+    res.json({ ...result, attending, attendingError });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Attending (RSVP'd) events — only meaningful for Venue accounts, but the endpoint is
+// type-agnostic so callers can always read whatever is cached.
+app.get('/accounts/:accountId/events/attending', auth, async (req, res) => {
+  try {
+    const cached = await readCachedAttendingEvents(req.params.accountId);
+    res.json(cached || { accountId: req.params.accountId, fetchedAt: null, events: [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/accounts/:accountId/events/attending/refresh', auth, async (req, res) => {
+  try {
+    const result = await refreshAttendingEventsForAccount(req.params.accountId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
