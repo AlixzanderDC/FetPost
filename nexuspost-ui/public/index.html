@@ -2009,15 +2009,24 @@ https://fetlife.com/events/.../..."></textarea>
   async function bcScheduleAll() {
     const errDiv = document.getElementById('batchcompose-error');
     errDiv.textContent = '';
+    // bcFailValidation reports the same message via the inline error AND a toast, then
+    // scrolls the offending row into view so the user doesn't have to hunt for it.
+    const bcFailValidation = (rowIndex, msg) => {
+      const full = 'Row ' + (rowIndex + 1) + ': ' + msg;
+      errDiv.textContent = full;
+      showToast(full, 'error');
+      const rowEl = document.querySelectorAll('#batchcompose-rows .compose-card')[rowIndex];
+      if (rowEl && rowEl.scrollIntoView) rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
     // Validate every row before submitting any.
     for (let i = 0; i < batchRows.length; i++) {
       const r = batchRows[i];
-      if (!r.accountId) { errDiv.textContent = 'Row ' + (i + 1) + ': pick an account'; return; }
-      if (!r.scheduledAt) { errDiv.textContent = 'Row ' + (i + 1) + ': pick a schedule time'; return; }
+      if (!r.accountId) { bcFailValidation(i, 'pick an account'); return; }
+      if (!r.scheduledAt) { bcFailValidation(i, 'pick a schedule time'); return; }
       const content = (r.content || '').trim();
-      if (!content && r.postType !== 'picture') { errDiv.textContent = 'Row ' + (i + 1) + ': write some content'; return; }
-      if (r.postType === 'picture' && (!Array.isArray(r.images) || r.images.length === 0)) { errDiv.textContent = 'Row ' + (i + 1) + ': add at least one image'; return; }
-      if (content.length > FL_MAX_CHARS) { errDiv.textContent = 'Row ' + (i + 1) + ': ' + content.length + ' chars exceeds FetLife limit of ' + FL_MAX_CHARS; return; }
+      if (!content && r.postType !== 'picture') { bcFailValidation(i, 'write some content'); return; }
+      if (r.postType === 'picture' && (!Array.isArray(r.images) || r.images.length === 0)) { bcFailValidation(i, 'add at least one image'); return; }
+      if (content.length > FL_MAX_CHARS) { bcFailValidation(i, content.length + ' chars exceeds FetLife limit of ' + FL_MAX_CHARS); return; }
     }
     let ok = 0, failed = 0;
     for (let i = 0; i < batchRows.length; i++) {
@@ -3507,17 +3516,19 @@ https://fetlife.com/events/.../..."></textarea>
   function mpHandleDrop(e) { e.preventDefault(); e.currentTarget.classList.remove('drag-over'); Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')).forEach(file => { const r = new FileReader(); r.onload = ev => { mpBaseImages.push({ data: ev.target.result.split(',')[1], mimeType: file.type, name: file.name }); mpRenderBaseGrid(); }; r.readAsDataURL(file); }); }
   function mpRenderBaseGrid() { const g = document.getElementById('mp-base-image-grid'); if (g) g.innerHTML = mpBaseImages.map((img,i) => '<div class="image-thumb"><img src="data:' + img.mimeType + ';base64,' + img.data + '" alt=""><button class="img-remove" onclick="mpBaseImages.splice(' + i + ',1);mpRenderBaseGrid()" aria-label="Remove image">×</button></div>').join(''); }
 
-  async function mpSchedule() { const t = document.getElementById('mp-schedule-time').value; if (!t) { document.getElementById('mp-error').textContent = 'Select a date and time'; return; } await mpSubmit(new Date(t).toISOString()); }
+  // Inline error + toast so users on long composers don't miss the message.
+  function mpFlashErr(msg) { document.getElementById('mp-error').textContent = msg; showToast(msg, 'error'); }
+  async function mpSchedule() { const t = document.getElementById('mp-schedule-time').value; if (!t) { mpFlashErr('Select a date and time'); return; } await mpSubmit(new Date(t).toISOString()); }
   async function mpScheduleNow() { await mpSubmit(new Date(Date.now() + 5000).toISOString()); }
 
   async function mpSubmit(scheduledAt) {
-    const errEl = document.getElementById('mp-error'); errEl.textContent = '';
-    if (mpSelectedAccounts.size === 0) { errEl.textContent = 'Select at least one account'; return; }
+    document.getElementById('mp-error').textContent = '';
+    if (mpSelectedAccounts.size === 0) { mpFlashErr('Select at least one account'); return; }
     const base = mpGetBaseText();
-    if (!base && mpPostType === 'text') { errEl.textContent = 'Write a base post first'; return; }
+    if (!base && mpPostType === 'text') { mpFlashErr('Write a base post first'); return; }
     for (const accountId of mpSelectedAccounts) {
       const text = mpCustomText[accountId] || base;
-      if (text.length > FL_MAX_CHARS) { errEl.textContent = accountId + ': ' + text.length + ' chars exceeds FetLife limit of ' + FL_MAX_CHARS; return; }
+      if (text.length > FL_MAX_CHARS) { mpFlashErr(accountId + ': ' + text.length + ' chars exceeds FetLife limit of ' + FL_MAX_CHARS); return; }
     }
     const results = [];
     for (const accountId of mpSelectedAccounts) {
@@ -3639,7 +3650,7 @@ https://fetlife.com/events/.../..."></textarea>
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-ui-token': token },
         body: JSON.stringify({
-          platforms: ['fetlife'], accountIds: [acct],
+          platforms: ['fetlife'], accountIds: ['fetlife:' + acct],
           content: text, scheduledAt: when.toISOString(),
           postType: 'status',
         }),
@@ -4378,6 +4389,9 @@ https://fetlife.com/events/.../..."></textarea>
     const el = gpEl(field); if (!el) return;
     el.style.color = isErr ? 'var(--danger)' : 'var(--text2)';
     el.textContent = msg;
+    // Mirror real errors as a toast — the gp-error/gp-result divs sit beneath a long form
+    // and are easy to miss when scrolled away.
+    if (isErr && msg) showToast(msg, 'error');
   }
 
   async function gpLoadAccounts() {
