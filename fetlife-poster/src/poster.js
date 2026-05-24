@@ -261,7 +261,7 @@ export async function postPicture(username, password, caption, images, accountId
     const addPicsButton = await page.$('button:has-text("Add Pictures"), button:has-text("Add Pics")');
     if (!addPicsButton) throw new Error('Could not find Add Pictures button — try clicking the status box first');
 
-    // Step 3: Save image to temp file and upload via file chooser
+    // Step 3: Save first image to temp file and upload via file chooser
     const tmpPath = await base64ToTempFile(images[0].data, images[0].mimeType || 'image/jpeg', 0);
     tempFiles.push(tmpPath);
 
@@ -270,8 +270,24 @@ export async function postPicture(username, password, caption, images, accountId
       addPicsButton.click(),
     ]);
     await fileChooser.setFiles(tmpPath);
-    console.log(`[poster] Image uploaded for ${id}`);
+    console.log(`[poster] Image 1/${images.length} uploaded for ${id}`);
     await delay(2000, 4000);
+
+    // Step 3b: For each additional image, click the in-composer "add more" tile (CSS
+    // signature includes `@container/add-more`) and feed the next file via filechooser.
+    // FetLife re-renders the tile after each upload, so we re-query it every iteration.
+    for (let i = 1; i < images.length; i++) {
+      const nextPath = await base64ToTempFile(images[i].data, images[i].mimeType || 'image/jpeg', i);
+      tempFiles.push(nextPath);
+      const addMore = await page.waitForSelector('[class*="container/add-more"]', { timeout: 10000 });
+      const [nextChooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 10000 }),
+        addMore.click(),
+      ]);
+      await nextChooser.setFiles(nextPath);
+      console.log(`[poster] Image ${i + 1}/${images.length} uploaded for ${id}`);
+      await delay(1500, 2500);
+    }
 
     // Step 4: Check 18+ verification checkbox
     const ageCheckSelectors = [
