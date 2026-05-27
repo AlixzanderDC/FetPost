@@ -4181,11 +4181,15 @@ https://fetlife.com/events/.../..."></textarea>
     const orgFilter = document.getElementById('cal-org').value;
     const filtered = allPosts.filter(p => {
       if (p.status !== 'scheduled') return false;
-      if (orgFilter && (p.groupName || p.accountId) !== orgFilter) return false;
+      // Compare against the resolved org label, not the raw accountId — queue posts
+      // carry no groupName, so orgLabelOf() maps their accountId to the same display
+      // name the org dropdown/legend are built from. Otherwise picking an org hides
+      // every scheduled post (events survive because they ship an injected groupName).
+      if (orgFilter && orgLabelOf(p) !== orgFilter) return false;
       return true;
     });
     const filteredEvents = (allOrganizedEvents || []).filter(e => {
-      if (orgFilter && (e.groupName || e.accountId) !== orgFilter) return false;
+      if (orgFilter && orgLabelOf(e) !== orgFilter) return false;
       return true;
     });
 
@@ -4310,7 +4314,7 @@ https://fetlife.com/events/.../..."></textarea>
   window.calOpenDay = function (dayKey) {
     const all = allPosts.filter(p => p.status === 'scheduled' && calDayKey(new Date(p.scheduledAt)) === dayKey);
     const orgFilter = document.getElementById('cal-org').value;
-    const list = (orgFilter ? all.filter(p => (p.groupName || p.accountId) === orgFilter) : all)
+    const list = (orgFilter ? all.filter(p => orgLabelOf(p) === orgFilter) : all)
       .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
     const html =
       '<h3>Posts on ' + new Date(dayKey + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' }) + '</h3>' +
