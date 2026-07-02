@@ -16,6 +16,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { refreshPostMetrics } from './metrics.js';
+import { writeJsonAtomic, readJsonStrict } from './util/atomic-json.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POSTS_DIR = path.join(__dirname, '..', 'data', 'posts');
@@ -48,17 +49,15 @@ function postIdFromUrl(url) {
 }
 
 export async function listTrackedPosts(accountId) {
-  try {
-    const raw = await fs.readFile(trackedFile(accountId), 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+  return await readJsonStrict(trackedFile(accountId), {
+    defaultIfMissing: [],
+    label: `posts/${accountId}-tracked.json`,
+  });
 }
 
 async function saveTrackedPosts(accountId, list) {
   await fs.mkdir(POSTS_DIR, { recursive: true });
-  await fs.writeFile(trackedFile(accountId), JSON.stringify(list, null, 2));
+  await writeJsonAtomic(trackedFile(accountId), list);
 }
 
 /**

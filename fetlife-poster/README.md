@@ -1,6 +1,6 @@
 # fetlife-poster
 
-Local automation service for FetLife — part of the NexusPost stack.
+Local automation service for FetLife — the backend service in the FetPost stack.
 
 Runs on `http://127.0.0.1:3747` and is only accessible from your machine.
 Never exposes credentials to the internet.
@@ -10,9 +10,9 @@ Never exposes credentials to the internet.
 ## Architecture
 
 ```
-NexusPost main app
+FetPost UI (nexuspost-ui — folder name pending rename)
       │
-      │  HTTP on localhost:3747
+      │  HTTP on localhost:3747 (x-service-token: FL_SERVICE_SECRET)
       ▼
 fetlife-poster (this service)
       │
@@ -46,7 +46,7 @@ npx playwright install chromium
 Create a `.env` file (or set in your shell/process manager):
 
 ```env
-# Shared secret between this service and your NexusPost main app
+# Shared secret between this service and the FetPost UI
 FL_SERVICE_SECRET=generate-a-long-random-string-here
 
 # Optional: machine-specific key for credential encryption

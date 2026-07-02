@@ -1,7 +1,7 @@
 {
   "name": "fetlife-poster",
   "version": "1.0.0",
-  "description": "Local FetLife automation service for NexusPost",
+  "description": "Local FetLife automation service for FetPost",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

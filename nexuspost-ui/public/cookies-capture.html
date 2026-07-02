@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FetPost — Capture FetLife session</title>
+  <link rel="icon" type="image/svg+xml" href="/icons/fetlife.svg">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg0: #0a0a0c; --bg1: #111115; --bg2: #18181e; --bg3: #222228;
+      --border: rgba(255,255,255,0.07); --text0: #f0f0f4; --text1: #a0a0b0; --text2: #8a8a98;
+      --accent: #dc2626; --success: #34d399; --warn: #fbbf24; --danger: #f87171;
+    }
+    html, body { height: 100%; background: var(--bg0); color: var(--text0); font-family: 'Syne', system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    .topbar { background: var(--bg1); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .topbar-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+    .topbar-title span { color: var(--accent); }
+    .topbar-sub { font-size: 12px; color: var(--text2); font-family: 'DM Mono', monospace; }
+    .status-pill { padding: 4px 10px; border-radius: 99px; font-size: 11px; font-family: 'DM Mono', monospace; font-weight: 600; }
+    .status-connecting { background: rgba(251,191,36,0.12); color: var(--warn); }
+    .status-connected { background: rgba(52,211,153,0.12); color: var(--success); }
+    .status-disconnected { background: rgba(248,113,113,0.12); color: var(--danger); }
+    .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+    .btn { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg2); color: var(--text0); font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer; min-height: 36px; }
+    .btn:hover:not(:disabled) { background: var(--bg3); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-accent { background: var(--accent); border-color: transparent; color: #fff; }
+    .btn-accent:hover:not(:disabled) { background: #ef4444; }
+    .vnc-wrap { flex: 1; position: relative; background: #000; overflow: hidden; }
+    #vnc-screen { width: 100%; height: 100%; }
+    .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; background: rgba(10,10,12,0.95); }
+    .overlay.hidden { display: none; }
+    .overlay-icon { font-size: 48px; margin-bottom: 12px; }
+    .overlay-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    .overlay-msg { font-size: 13px; color: var(--text1); max-width: 480px; line-height: 1.6; }
+    .overlay-msg code { background: var(--bg2); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+    .footer-help { background: var(--bg1); border-top: 1px solid var(--border); padding: 10px 20px; font-size: 12px; color: var(--text2); font-family: 'DM Mono', monospace; text-align: center; }
+    .footer-help strong { color: var(--text1); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">Fet<span>Post</span> — Capture FetLife session</div>
+      <div class="topbar-sub" id="account-label">Loading account…</div>
+    </div>
+    <span class="status-pill status-connecting" id="status">Connecting…</span>
+    <div class="topbar-actions">
+      <button class="btn" type="button" onclick="window.close()">Cancel</button>
+      <button class="btn btn-accent" id="signal-btn" type="button" disabled onclick="signalLoggedIn()">I've logged in →</button>
+    </div>
+  </div>
+
+  <div class="vnc-wrap">
+    <div id="vnc-screen"></div>
+    <div class="overlay" id="overlay">
+      <div class="overlay-icon" id="overlay-icon">⏳</div>
+      <div class="overlay-title" id="overlay-title">Connecting to your droplet's browser…</div>
+      <div class="overlay-msg" id="overlay-msg">
+        This shows a Chrome window running on your server. Log into FetLife inside it; FetPost
+        watches for your session cookies and saves them automatically. When you reach the FetLife
+        home page, click <strong>"I've logged in"</strong> above.
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-help">
+    Trouble connecting? Make sure your droplet is running <strong>websockify</strong> on port 6080
+    and TigerVNC on display <strong>:1</strong>. The Setup Manual covers both.
+  </div>
+
+  <script type="module">
+    import RFB from '/novnc/core/rfb.js';
+
+    // Pull the account ID + capture context out of the URL so we can show it in the topbar
+    // and pass it to the extract-cookies + cookie-signal endpoints. Falls back to "the first
+    // account" if no specific id was provided (which is the wizard case — only one account
+    // exists at this point).
+    const params = new URLSearchParams(window.location.search);
+    const accountId = params.get('accountId') || '';
+    const sessionToken = params.get('token') || ''; // optional, only set when not in wizard mode
+    const label = params.get('label') || accountId || 'your FetLife account';
+    document.getElementById('account-label').textContent = 'Logging in as: ' + label;
+
+    // Build the WebSocket URL. Same-origin so the proxy handles auth; wss/ws follows the
+    // page's protocol so it works over both plain HTTP and reverse-proxied HTTPS.
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsParams = sessionToken ? '?token=' + encodeURIComponent(sessionToken) : '';
+    const wsUrl = `${proto}//${location.host}/api/vnc-ws${wsParams}`;
+
+    const statusEl = document.getElementById('status');
+    const overlayEl = document.getElementById('overlay');
+    const overlayIcon = document.getElementById('overlay-icon');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayMsg = document.getElementById('overlay-msg');
+    const signalBtn = document.getElementById('signal-btn');
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = 'status-pill status-' + kind;
+    }
+
+    function showOverlay(icon, title, msg) {
+      overlayIcon.textContent = icon;
+      overlayTitle.textContent = title;
+      overlayMsg.innerHTML = msg;
+      overlayEl.classList.remove('hidden');
+    }
+    function hideOverlay() { overlayEl.classList.add('hidden'); }
+
+    // Kick off the headed-Chrome cookie extraction on the server so there's something to
+    // VNC into. The extractor watches for /tmp/fetpost-cookie-signal once the customer has
+    // finished logging in (see signalLoggedIn below).
+    async function startExtractor() {
+      try {
+        const endpoint = sessionToken
+          ? `/api/accounts/fetlife/${encodeURIComponent(accountId)}/extract-cookies?force=1`
+          : '/api/wizard/extract-cookies';
+        const headers = { 'Content-Type': 'application/json' };
+        if (sessionToken) headers['x-ui-token'] = sessionToken;
+        const r = await fetch(endpoint, {
+          method: 'POST', headers,
+          body: JSON.stringify(sessionToken ? {} : { accountId }),
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          showOverlay('⚠️', 'Extractor failed to start', data.error || ('HTTP ' + r.status));
+        }
+      } catch (err) {
+        showOverlay('⚠️', 'Could not reach the server', err.message);
+      }
+    }
+
+    let rfb = null;
+    function connect() {
+      try {
+        rfb = new RFB(document.getElementById('vnc-screen'), wsUrl);
+        rfb.viewOnly = false;
+        rfb.scaleViewport = true;
+        rfb.resizeSession = false;
+        rfb.addEventListener('connect', () => {
+          setStatus('Connected', 'connected');
+          hideOverlay();
+          signalBtn.disabled = false;
+        });
+        rfb.addEventListener('disconnect', (e) => {
+          setStatus('Disconnected', 'disconnected');
+          signalBtn.disabled = true;
+          showOverlay('🔌', 'Disconnected from droplet',
+            'The VNC session ended. If you saw the FetLife home page before this happened, your cookies were likely saved. Otherwise close this tab and try Capture again.');
+        });
+      } catch (err) {
+        showOverlay('⚠️', 'Could not start VNC client', err.message);
+      }
+    }
+
+    window.signalLoggedIn = async function () {
+      signalBtn.disabled = true;
+      const orig = signalBtn.textContent;
+      signalBtn.textContent = 'Saving…';
+      try {
+        const endpoint = sessionToken ? '/api/cookie-signal' : '/api/wizard/cookie-signal';
+        const headers = { 'Content-Type': 'application/json' };
+        if (sessionToken) headers['x-ui-token'] = sessionToken;
+        const r = await fetch(endpoint, { method: 'POST', headers, body: '{}' });
+        if (r.ok) {
+          showOverlay('✓', 'Session captured',
+            'FetPost saved your FetLife cookies. You can close this tab and return to the wizard.');
+          if (rfb) rfb.disconnect();
+        } else {
+          signalBtn.disabled = false;
+          signalBtn.textContent = orig;
+        }
+      } catch (err) {
+        signalBtn.disabled = false;
+        signalBtn.textContent = orig;
+      }
+    };
+
+    // Sequence: start the extractor first (which launches Chrome on the VNC desktop),
+    // give it a couple seconds to paint, then attach the VNC client.
+    startExtractor();
+    setTimeout(connect, 2000);
+  </script>
+</body>
+</html>

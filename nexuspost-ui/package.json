@@ -9,7 +9,9 @@
     "dev": "node --watch src/server.js"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "http-proxy": "^1.18.1",
+    "@novnc/novnc": "^1.5.0"
   },
   "engines": {
     "node": ">=18.0.0"

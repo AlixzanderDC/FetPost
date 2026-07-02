@@ -11,6 +11,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { refreshEventMetrics } from './metrics.js';
+import { writeJsonAtomic, readJsonStrict } from './util/atomic-json.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVENTS_DIR = path.join(__dirname, '..', 'data', 'events');
@@ -33,17 +34,15 @@ export function normalizeEventUrl(url) {
 }
 
 export async function listTrackedEvents(accountId) {
-  try {
-    const raw = await fs.readFile(trackedFile(accountId), 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+  return await readJsonStrict(trackedFile(accountId), {
+    defaultIfMissing: [],
+    label: `events/${accountId}-tracked.json`,
+  });
 }
 
 async function saveTrackedEvents(accountId, list) {
   await fs.mkdir(EVENTS_DIR, { recursive: true });
-  await fs.writeFile(trackedFile(accountId), JSON.stringify(list, null, 2));
+  await writeJsonAtomic(trackedFile(accountId), list);
 }
 
 export async function addTrackedEvents(accountId, urls, source = 'manual') {

@@ -33,7 +33,12 @@ async function main() {
   console.log(`[tracked-posts-cron] === Done at ${new Date().toISOString()} ===`);
 }
 
-main().catch(err => {
+main().then(() => {
+  // Explicit exit: Playwright can leave the event loop alive (lingering browser
+  // handles), so without this a cron invocation may hang instead of exiting and
+  // successive runs pile up as zombie node processes.
+  process.exit(0);
+}).catch(err => {
   console.error('[tracked-posts-cron] Top-level error:', err);
   process.exit(1);
 });

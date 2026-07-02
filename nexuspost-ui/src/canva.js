@@ -47,7 +47,12 @@ function decrypt(b64, secret) {
 }
 
 function machineSecret() {
-  return process.env.FL_MACHINE_SECRET || (process.platform + '-' + process.arch + '-fetpost');
+  // Fail closed: without FL_MACHINE_SECRET the old fallback derived the token-encryption
+  // key from process.platform+arch — a value any attacker knows — so the OAuth tokens
+  // at rest would be trivially decryptable. Refuse rather than encrypt with a public key.
+  const s = process.env.FL_MACHINE_SECRET;
+  if (!s) throw new Error('FL_MACHINE_SECRET is not set — refusing to encrypt/decrypt Canva tokens with a predictable key');
+  return s;
 }
 
 async function loadTokens() {

@@ -1,134 +1,72 @@
 # FetPost
 
-A self-hosted scheduling and cross-posting tool for [FetLife](https://fetlife.com). Schedule status posts, write group cross-posts, fan one event announcement out to multiple groups with automatic staggered timing, and manage multiple accounts from a single dashboard.
+**Brought to you by Alixzander & Co.**
 
-> **Disclaimer:** This tool automates a service whose Terms of Service may prohibit automation. Use it for your own accounts, at your own risk. Don't spam, don't post on behalf of others without consent, and respect rate limits. The author is not affiliated with FetLife.
+The easiest way to schedule FetLife posts, cross-post events to your groups, and keep your community in the loop — all from one calendar.
 
-## What it does
+This is the **polished, idiot-proof distribution** of FetPost. It's designed so you can go from "I want this" to "my first post is scheduled" in about ten minutes, without ever opening a terminal.
 
-- **Schedule status posts** for any time in the future, per account.
-- **Group cross-post** — author one event announcement and fan it out to a list of FetLife groups with a 60–120s stagger between posts (avoids looking automated).
-- **Multi-account support** — run posts under several FetLife identities from one UI.
-- **Calendar view** — see what's scheduled across all accounts, click any chip to inspect or cancel a post.
-- **Saved templates** scoped per account/per group for posts you write often.
-- **Auto-discovery** of your joined groups and organized/attending events for quick selection.
-- **Image attachments** with thumbnail previews in the calendar and queue.
-- **Canva integration** (optional) — pick a design directly from your Canva account, FetPost exports it as PNG and attaches it to the post.
-- **Cookie-based authentication** — log in once via a real browser, then the bot uses session cookies for all subsequent posting (no headless password-login race against Cloudflare).
+> Looking for the developer/tinkerer edition? That lives in a separate public repository. This one is the supported product.
 
-## Architecture
+---
 
-Two Node.js services run side by side, communicating over localhost HTTP:
+## What FetPost does
 
-```
-Browser  ─►  nexuspost-ui (port 4000)  ─HTTP─►  fetlife-poster (port 3747)
-                  │                                      │
-                  │                                      ├── credentials.js  (AES-256-GCM)
-                  │                                      ├── scheduler.js    (persistent timer queue)
-                  │                                      ├── poster.js       (Playwright + real Chrome)
-                  │                                      └── extractor.js    (cookie capture)
-                  └── public/index.html  (single-page UI)
-```
+- **Schedule status posts** for any FetLife account, any time in the future. Including overnight while you sleep.
+- **Cross-post events** to your FetLife groups — write the announcement once, FetPost posts it into every group on your list (with a polite stagger between groups so it doesn't look automated).
+- **Multi-account support** — manage all your FetLife identities (venue, organizer, individual) from a single dashboard.
+- **Calendar view** — see every scheduled post across every account, click to edit or cancel.
+- **Batch Compose** — write a week of posts in a single sitting, schedule them all at once.
+- **Quick Post (mobile)** — schedule a one-off post from your phone in about ten seconds.
+- **Event tracking** — see RSVP counts on your scheduled events, watch them grow over time.
+- **Templates** — save posts you write often, drop them into new posts with one click.
+- **Image attachments** with optional Canva integration.
 
-- **`nexuspost-ui/`** — Express + a single-page HTML dashboard.
-- **`fetlife-poster/`** — Playwright-based automation service. Bound to `127.0.0.1` only.
+## Who FetPost is for
 
-## Quick start
+- **Venue managers** running a busy FetLife presence for a club, dungeon, or play space.
+- **Event organizers** who run recurring parties and want to cross-post into multiple community groups without spending an hour every Sunday.
+- **Individual creators** who want their posts to fire at the right time instead of remembering to log in.
 
-### Prerequisites
-- Node.js ≥ 20.6 (for `--env-file` support)
-- Google Chrome (Playwright drives a real Chrome, not Chromium, to avoid bot detection)
+If you have ever found yourself thinking "I should post about this event but I'll do it later" — and "later" became "the day of, in a panic" — this is for you.
 
-### Install
+## Getting started
 
-```bash
-git clone https://github.com/<your-username>/FetPost.git
-cd FetPost
+The setup manual walks you through everything, screenshot by screenshot:
 
-# Copy the env template and generate secrets
-cp .env.example .env
-node -e "console.log('FL_SERVICE_SECRET=' + require('crypto').randomBytes(32).toString('hex'))" >> .env
-node -e "console.log('FL_MACHINE_SECRET=' + require('crypto').randomBytes(32).toString('hex'))" >> .env
-# Edit .env and remove the placeholder values
+1. Sign up for a DigitalOcean account (or sign in if you have one).
+2. Click the FetPost deploy button. DigitalOcean creates a private server for you, just yours, for about $5/month.
+3. Wait ~5 minutes for the server to come up.
+4. Visit the URL DigitalOcean gives you. FetPost's first-run wizard takes it from there.
 
-# Install service dependencies
-(cd fetlife-poster && npm install)
-(cd nexuspost-ui && npm install)
-```
+**👉 See [the setup manual](docs/SETUP.md) for the full walkthrough.**
 
-### Run
+You don't need to know anything about Linux, SSH, Node.js, or web servers. If you can use a web browser and you can copy a credit card number into a form, you can run FetPost.
 
-**Linux / macOS:**
-```bash
-./start.sh
-```
+## What it costs
 
-**Windows:**
-```cmd
-start.cmd
-```
+- **FetPost itself**: free.
+- **The server it runs on**: about $5/month, paid directly to DigitalOcean. You own the server. Alixzander & Co. doesn't see your credentials, your posts, or your community data.
+- **Optional Canva integration**: free if you have a Canva account.
 
-Open `http://localhost:4000` in your browser. Add a FetLife account; cookie capture will open a Chrome window where you log in once, and from there scheduling and posting works headless.
+That's it. No monthly subscription, no usage limits, no upsells.
 
-## Cookie capture
+## Privacy & your data
 
-FetLife sits behind Cloudflare, which actively blocks automated logins from datacenter IPs and challenges any login that looks scripted. Rather than play that arms race, FetPost captures session cookies through a single human login:
+Your FetPost server is yours. It runs on a private DigitalOcean droplet you control. Alixzander & Co. doesn't host it, doesn't have access to it, and doesn't collect data from it. Your FetLife credentials, your posts, your community member data — all stay on your server.
 
-1. You click **Add Account** in the UI.
-2. A real Chrome window opens (visible — `headless: false`).
-3. You log in normally. Solve any Cloudflare challenge or 2FA prompt.
-4. Once logged in, you click "I've logged in" in the UI (or hit Enter in the spawning terminal).
-5. FetPost saves the cookies. All future posts use those cookies — no password login, no Cloudflare challenge.
+When FetPost updates (we ship fixes whenever FetLife changes something on their end), your server fetches the new code from our public repository. We do not push anything to your server; your server pulls when it's ready.
 
-Cookies typically last 1–4 weeks. A scheduled cron job at 4 AM every other day attempts a silent **headless refresh** (revisit `/home`, FetLife rotates cookies, re-save) to extend their life. When the cookies fully expire, the cron fails and you redo the manual login flow.
+## Support
 
-## Optional: Canva integration
+- **Setup help**: [the setup manual](docs/SETUP.md) covers the entire deploy flow with screenshots.
+- **In-app help**: every screen has tooltips on the small icons.
+- **Bug reports / feature requests**: reach Alixzander directly. Contact info is on the login screen of your FetPost.
 
-If you create your post images in Canva, FetPost can pull designs straight from your account.
+## Disclaimer
 
-1. Go to https://www.canva.com/developers/ and create a new integration.
-2. Add a redirect URL matching where FetPost runs — typically `http://localhost:4000/oauth/canva/callback` (local) or `http://<tailscale-name>:4000/oauth/canva/callback` (server).
-3. Add scopes `design:meta:read` and `design:content:read`.
-4. Copy the Client ID and Client Secret into your `.env`:
+FetPost automates posting to a service (FetLife) whose Terms of Service may not permit automation. Use it for your own accounts. Don't spam. Don't post on behalf of others without their consent. Respect FetLife and its community. Alixzander & Co. is not affiliated with FetLife.
 
-   ```
-   CANVA_CLIENT_ID=your-client-id
-   CANVA_CLIENT_SECRET=your-client-secret
-   CANVA_REDIRECT_URI=http://localhost:4000/oauth/canva/callback
-   ```
+---
 
-5. Restart FetPost. The **Accounts** tab will now show a "🎨 Canva Integration" card. Click **Connect Canva**, approve in the browser tab that opens, and you're set.
-6. In **Compose** with Image post type, you'll see a **Pick from Canva** button. Click it to browse your designs and import one as the post image.
-
-Note: Canva may require HTTPS for non-localhost redirect URIs. If your registration is rejected, set up TLS on your server (Caddy + Let's Encrypt is easiest) and use the `https://` URL.
-
-## 24/7 deployment
-
-For the bot to fire scheduled posts when your laptop is off, run FetPost on a small server. The author runs it on a $6/month DigitalOcean Droplet:
-
-- **Tailscale** for private remote access from any device (UI is bound to `127.0.0.1`; Tailscale tunnels in).
-- **NordVPN** on the server to mask the datacenter IP from Cloudflare (residential-style VPN exits don't trigger as many challenges).
-- **systemd** unit for auto-start on boot.
-- **TigerVNC + XFCE** for occasional manual cookie refreshes.
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the full setup walkthrough. *(Coming soon — for now, the gist is: install Node + Chrome + Tailscale + NordVPN + TigerVNC, scp the repo, point the UI at `http://<tailscale-name>:4000`.)*
-
-## Security model
-
-- Credentials are encrypted at rest with AES-256-GCM. The encryption key is the `FL_MACHINE_SECRET` env var, derived per machine.
-- Both services bind to `127.0.0.1` only — the UI service has no external listener by default.
-- Inter-service HTTP requests carry a shared secret (`FL_SERVICE_SECRET`) header.
-- `data/` is in `.gitignore` — credentials, cookies, scheduled posts, and post history never leave your machine.
-- The default deployment exposes the UI through Tailscale (private tailnet only). Don't put `:4000` on the public internet.
-
-## Project status
-
-Built and used in production by the author since early 2026. Active development is focused on FetLife. Earlier versions targeted Bluesky / OnlyFans / Fansly / ManyVids / NiteFlirt; that code has been removed but git history may still show traces of it.
-
-## Contributing
-
-Issues and PRs welcome. Please don't file anything that would help someone abuse the tool (e.g., evading FetLife's rate limits, posting on behalf of accounts you don't own). The README is in plain English on purpose — if something's confusing, that's a bug.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+*FetPost — Brought to you by Alixzander & Co.*

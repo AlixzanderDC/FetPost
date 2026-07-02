@@ -1,5 +1,5 @@
 /**
- * FetLifeClient — use this in your main NexusPost app to talk to
+ * FetLifeClient — use this from the FetPost UI process to talk to
  * the local fetlife-poster service running on localhost:3747.
  *
  * Usage:

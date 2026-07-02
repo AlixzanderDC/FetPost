@@ -81,6 +81,34 @@ const FL_BASE = 'https://fetlife.com';
 
 const delay = (min, max) => new Promise(r => setTimeout(r, min + Math.random() * (max - min)));
 
+// Pre-save validation. The recurring failure mode of every cookie refresh path
+// is to save the cookies present after a `goto` even when those cookies don't
+// represent a logged-in session — Cloudflare-only cookies (`__cfruid` etc.) +
+// remember_user_token wiped, no session id. The next post attempt then fails
+// with "session expired" 12 hours later, by which point the operator has lost
+// the diagnostic context. Refuse to save unless a real session cookie is
+// present with a non-trivial value length.
+//
+// Returns { ok: bool, reason: string } so the caller can decide whether to
+// fall back to a different refresh path (headless → headed → manual VNC).
+function looksLikeRealSession(flCookies) {
+  if (!Array.isArray(flCookies) || flCookies.length === 0) {
+    return { ok: false, reason: 'no FetLife cookies at all (browser probably never reached the site)' };
+  }
+  const sessionNames = ['_fl_sessionid', '_session_id', 'remember_user_token'];
+  const session = flCookies.find(c =>
+    sessionNames.includes(c.name) && typeof c.value === 'string' && c.value.length >= 16
+  );
+  if (!session) {
+    return {
+      ok: false,
+      reason: 'no usable session cookie found (need _fl_sessionid / _session_id / remember_user_token ≥16 chars). Cookies present: ' +
+        flCookies.map(c => c.name).join(', '),
+    };
+  }
+  return { ok: true, reason: 'session cookie ' + session.name + ' (len=' + session.value.length + ')' };
+}
+
 export async function tryHeadlessRefresh(accountId, username) {
   const savedCookiePath = path.join(COOKIES_DIR, accountId + '.json');
   let existingCookies;
@@ -95,15 +123,15 @@ export async function tryHeadlessRefresh(accountId, username) {
     channel: 'chrome',
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
   });
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 800 },
-  });
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    window.chrome = { runtime: {} };
-  });
   try {
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 800 },
+    });
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      window.chrome = { runtime: {} };
+    });
     await context.addCookies(existingCookies);
     const page = await context.newPage();
     await page.goto(`${FL_BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -115,9 +143,18 @@ export async function tryHeadlessRefresh(accountId, username) {
     }
     const cookies = await context.cookies();
     const flCookies = cookies.filter(c => c.domain.includes('fetlife.com'));
+    const check = looksLikeRealSession(flCookies);
+    if (!check.ok) {
+      // Refuse to overwrite the existing file with anonymous cookies. The 12h cron
+      // will retry; if the issue is persistent the operator gets surfaced freshness
+      // failure rather than silent stale-session-saved-as-fresh.
+      console.warn(`[extractor] Headless refresh for ${username} produced anonymous cookies (${check.reason}). NOT saving — falling back.`);
+      await browser.close();
+      return null;
+    }
     await fs.writeFile(savedCookiePath, JSON.stringify(flCookies, null, 2), 'utf8');
     await browser.close();
-    console.log(`[extractor] Refreshed ${flCookies.length} cookies for ${username} (headless)`);
+    console.log(`[extractor] Refreshed ${flCookies.length} cookies for ${username} (headless) — ${check.reason}`);
     return { success: true, accountId, username, cookieCount: flCookies.length };
   } catch {
     await browser.close().catch(() => {});
@@ -144,36 +181,37 @@ async function extractCookiesForAccount(accountId, username, password) {
     ],
   });
 
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 800 },
-  });
-
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    window.chrome = { runtime: {} };
-    // Auto-tick the "Remember me, I'll be back." checkbox on FetLife's /sign_in page so
-    // every login — autofill or manual — leaves a long-lived remember_user_token cookie.
-    // That's what the passive headless refresh later uses to re-establish a session
-    // without needing a new manual login. Re-arm on DOM mutations because React can
-    // re-render the form and lose the checked state.
-    function tickRememberMe() {
-      const cb = document.querySelector('input[name="user[remember_me]"]')
-              || document.querySelector('input[type="checkbox"][name*="remember" i]')
-              || document.querySelector('input[type="checkbox"][id*="remember" i]');
-      if (cb && !cb.checked) {
-        cb.checked = true;
-        cb.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }
-    document.addEventListener('DOMContentLoaded', tickRememberMe);
-    try { new MutationObserver(tickRememberMe).observe(document.documentElement, { childList: true, subtree: true }); } catch {}
-  });
-
-  const page = await context.newPage();
   const savedCookiePath = path.join(COOKIES_DIR, accountId + '.json');
 
   try {
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 800 },
+    });
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      window.chrome = { runtime: {} };
+      // Auto-tick the "Remember me, I'll be back." checkbox on FetLife's /sign_in page so
+      // every login — autofill or manual — leaves a long-lived remember_user_token cookie.
+      // That's what the passive headless refresh later uses to re-establish a session
+      // without needing a new manual login. Re-arm on DOM mutations because React can
+      // re-render the form and lose the checked state.
+      function tickRememberMe() {
+        const cb = document.querySelector('input[name="user[remember_me]"]')
+                || document.querySelector('input[type="checkbox"][name*="remember" i]')
+                || document.querySelector('input[type="checkbox"][id*="remember" i]');
+        if (cb && !cb.checked) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      document.addEventListener('DOMContentLoaded', tickRememberMe);
+      try { new MutationObserver(tickRememberMe).observe(document.documentElement, { childList: true, subtree: true }); } catch {}
+    });
+
+    const page = await context.newPage();
+
     await page.goto(`${FL_BASE}/sign_in`, { waitUntil: 'domcontentloaded' });
 
     // Best-effort autofill — if Cloudflare or a different page is showing, this
@@ -230,60 +268,23 @@ async function extractCookiesForAccount(accountId, username, password) {
 
     const cookies = await context.cookies();
     const flCookies = cookies.filter(c => c.domain.includes('fetlife.com'));
+    const check = looksLikeRealSession(flCookies);
+    if (!check.ok) {
+      // Don't clobber a previously-valid file with anonymous cookies. Throw so the
+      // operator sees the failure (the cron logs it; the dashboard freshness widget
+      // will continue to show the existing file's age + warn the operator).
+      await browser.close();
+      throw new Error(`Cookie save aborted for ${username}: ${check.reason}. The previous cookie file was preserved. Verify on FetLife that this account can actually log in.`);
+    }
 
     await fs.mkdir(COOKIES_DIR, { recursive: true });
     await fs.writeFile(savedCookiePath, JSON.stringify(flCookies, null, 2), 'utf8');
 
-    console.log(`[extractor] Saved ${flCookies.length} cookies for ${username}`);
+    console.log(`[extractor] Saved ${flCookies.length} cookies for ${username} — ${check.reason}`);
     await browser.close();
     return { success: true, accountId, username, cookieCount: flCookies.length };
   } catch (err) {
-    await browser.close();
-    throw err;
-  }
-}
-
-// Headed fallback for Cloudflare challenges
-async function extractWithHeadedBrowser(accountId, username, password) {
-  console.log(`[extractor] Using headed browser for ${username} (Cloudflare bypass)`);
-
-  const browser = await chromium.launch({
-    headless: false,
-    channel: 'chrome',
-  });
-
-  const context = await browser.newContext();
-  const page = await context.newPage();
-
-  try {
-    await page.goto(`${FL_BASE}/sign_in`, { waitUntil: 'domcontentloaded' });
-
-    // Wait for user to solve Cloudflare if needed (up to 30s)
-    await page.waitForURL(url => !url.includes('cloudflare') && !url.includes('challenge'), { timeout: 30000 }).catch(() => {});
-
-    await page.fill('input[name="user[login]"]', username);
-    await delay(300, 700);
-    await page.fill('input[name="user[password]"]', password);
-    await delay(400, 900);
-    await page.click('input[type="submit"], button[type="submit"]');
-    await delay(3000, 5000);
-
-    if (page.url().includes('/sign_in') || page.url().includes('/login')) {
-      throw new Error(`Login failed for ${username}`);
-    }
-
-    const cookies = await context.cookies();
-    const flCookies = cookies.filter(c => c.domain.includes('fetlife.com'));
-
-    await fs.mkdir(COOKIES_DIR, { recursive: true });
-    const cookiePath = path.join(COOKIES_DIR, accountId + '.json');
-    await fs.writeFile(cookiePath, JSON.stringify(flCookies, null, 2), 'utf8');
-
-    console.log(`[extractor] Saved ${flCookies.length} cookies for ${username} (headed mode)`);
-    await browser.close();
-    return { success: true, accountId, username, cookieCount: flCookies.length };
-  } catch (err) {
-    await browser.close();
+    await browser.close().catch(() => {});
     throw err;
   }
 }
@@ -343,22 +344,29 @@ export async function cookiesExistForAccount(accountId) {
 }
 
 // ── Auto-recovery: in-process headless refresh for "Not logged in" handlers ──
-// Coalesces concurrent callers per account, then suppresses repeat attempts for 30s
-// so a burst of requests doesn't trigger N headless logins back-to-back. Returns
-// true if a fresh session was written, false otherwise. Never throws.
+// Coalesces concurrent callers per account (they all await the same in-flight
+// promise), then applies a per-outcome cooldown so a burst doesn't hot-loop:
+//   - Success: 30s — fresh session in hand, retrying would only burn cycles.
+//   - Failure: 5s  — short, so a scan burst (10 venues all hitting expired
+//     cookies) doesn't have callers 2-10 silently skip after caller 1 fails.
+//     The in-flight coalescing means there's no concurrent-thrash risk.
+// Returns true if a fresh session was written, false otherwise. Never throws.
 const _autoRefreshInFlight = new Map();
 const _autoRefreshCooldown = new Map();
+const COOLDOWN_AFTER_SUCCESS_MS = 30 * 1000;
+const COOLDOWN_AFTER_FAILURE_MS = 5 * 1000;
 export async function autoRefreshCookies(accountId) {
   if (_autoRefreshInFlight.has(accountId)) return _autoRefreshInFlight.get(accountId);
   const cooldownUntil = _autoRefreshCooldown.get(accountId) || 0;
   if (Date.now() < cooldownUntil) return false;
   const p = (async () => {
+    let ok = false;
     try {
       const creds = await getCredentials(accountId);
       if (!creds || !creds.username) return false;
       console.log(`[auto-refresh] Trying headless refresh for ${accountId}…`);
       const result = await tryHeadlessRefresh(accountId, creds.username);
-      const ok = !!(result && result.success);
+      ok = !!(result && result.success);
       if (ok) console.log(`[auto-refresh] Succeeded for ${accountId}`);
       else console.log(`[auto-refresh] Headless refresh did not produce a session for ${accountId} — manual VNC refresh needed`);
       return ok;
@@ -367,7 +375,7 @@ export async function autoRefreshCookies(accountId) {
       return false;
     } finally {
       _autoRefreshInFlight.delete(accountId);
-      _autoRefreshCooldown.set(accountId, Date.now() + 30 * 1000);
+      _autoRefreshCooldown.set(accountId, Date.now() + (ok ? COOLDOWN_AFTER_SUCCESS_MS : COOLDOWN_AFTER_FAILURE_MS));
     }
   })();
   _autoRefreshInFlight.set(accountId, p);

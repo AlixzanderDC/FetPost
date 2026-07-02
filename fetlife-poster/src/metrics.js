@@ -7,7 +7,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { launchWithCookies, waitOutCloudflare } from './poster.js';
+import { launchWithCookies, waitOutCloudflare, checkLoggedIn } from './poster.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POSTS_DIR = path.join(__dirname, '..', 'data', 'metrics', 'posts');
@@ -48,9 +48,10 @@ export async function scrapePostMetrics(accountId, postUrl) {
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(2500);
 
-    if (page.url().includes('/sign_in') || page.url().includes('/login')) {
-      throw new Error(`Not logged in for ${accountId} — refresh cookies`);
-    }
+    // Content-aware: catches the case where FetLife served the login form at the
+    // requested URL without redirecting. URL-only checks miss this and produce a
+    // misleading "no engagement found" result.
+    await checkLoggedIn(page);
 
     // Debug text dump — same approach as the event scraper, makes selector tuning offline.
     try {
@@ -139,9 +140,7 @@ export async function scrapeEventMetrics(accountId, eventUrl) {
     await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(2500);
 
-    if (page.url().includes('/sign_in') || page.url().includes('/login')) {
-      throw new Error(`Not logged in for ${accountId} — refresh cookies`);
-    }
+    await checkLoggedIn(page);
 
     // Dump the full page text to a debug file so we can tune selectors offline.
     try {

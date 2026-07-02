@@ -146,6 +146,46 @@ UFW already blocks port 5901 from the public internet (only Tailscale and SSH pa
 
 To make VNC come back on reboot, add a systemd unit (see step 8) or set it up via `vncserver@.service`.
 
+### 6a. websockify (for in-browser cookie capture via noVNC)
+
+The first-run wizard streams the VNC desktop directly into the customer's browser using noVNC,
+so they never need to install a VNC viewer. noVNC speaks WebSocket; `websockify` bridges that
+to the VNC server's TCP port. The bridge listens on `127.0.0.1:6080` only — nexuspost-ui proxies
+`/api/vnc-ws` to it, so the public surface stays the single HTTP port (4000).
+
+```bash
+apt install -y websockify
+
+# systemd unit that runs websockify alongside TigerVNC
+cat > /etc/systemd/system/fetpost-websockify.service <<'EOF'
+[Unit]
+Description=websockify for FetPost noVNC capture
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/websockify 127.0.0.1:6080 127.0.0.1:5901
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now fetpost-websockify
+```
+
+Verify it's up:
+
+```bash
+systemctl status fetpost-websockify
+ss -tln | grep 6080   # should show LISTEN on 127.0.0.1:6080
+```
+
+Override the proxy target if needed via `VNC_WS_TARGET=ws://127.0.0.1:6080` in the
+nexuspost-ui environment file (default value, shown for completeness).
+
 ## 7. Deploy FetPost
 
 ```bash
@@ -157,6 +197,9 @@ git clone https://github.com/AlixzanderDC/FetPost.git .
 cp .env.example .env
 node -e "console.log('FL_SERVICE_SECRET=' + require('crypto').randomBytes(32).toString('hex'))" >> .env
 node -e "console.log('FL_MACHINE_SECRET=' + require('crypto').randomBytes(32).toString('hex'))" >> .env
+# Point the box at your deployed license Worker (see license-server/README.md). Required
+# for license enforcement; leave unset only for an unlicensed dev box.
+echo "LICENSE_SERVER_URL=https://fetpost-license.YOUR-SUBDOMAIN.workers.dev" >> .env
 # Edit .env to remove placeholder values and add Canva creds if using
 
 # Install service dependencies
