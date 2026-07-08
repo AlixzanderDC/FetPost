@@ -115,6 +115,9 @@ export async function schedulePost(job) {
     // created from a website iCal event, we record the source title/date/URL so
     // a later refresh can find a matching FetLife event and rewrite the link.
     sourceEventTitle, sourceEventDate, sourceEventUrl, pendingFetlifeMatch,
+    // Per-post opt-out of the account auto-signature (executeJob appends the
+    // signature at fire time unless the job carries this flag).
+    skipAutoSignature,
   } = job;
   const type = postType || 'status';
   // FetLife's /home composer (status + picture caption) rejects anything over 369 chars.
@@ -139,6 +142,7 @@ export async function schedulePost(job) {
       sourceEventDate: sourceEventDate || null,
       sourceEventUrl: sourceEventUrl || null,
       pendingFetlifeMatch: !!pendingFetlifeMatch,
+      skipAutoSignature: !!skipAutoSignature,
     };
     return queue[postId];
   });

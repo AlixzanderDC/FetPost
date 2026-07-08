@@ -373,6 +373,9 @@ export function previewActivation(campaign, opts = {}) {
       content,
       images,
       offsetDays: slot.offsetDays,
+      // Per-slot opt-out of the account auto-signature (scheduler appends it at
+      // execute time unless the queued job carries skipAutoSignature).
+      skipAutoSignature: !!slot.skipAutoSignature,
     });
   }
   return posts;
@@ -405,6 +408,7 @@ export async function activateCampaign(accountId, campaignId, schedulePostFn, op
         scheduledAt: p.scheduledAt,
         postType: p.postType,
         images: p.images || [],
+        skipAutoSignature: p.skipAutoSignature || false,
       });
       postIds.push(postId);
     } catch (err) {
@@ -478,6 +482,7 @@ export async function syncNewSlotsToRun(accountId, campaignId, schedulePostFn, o
         scheduledAt: p.scheduledAt,
         postType: p.postType,
         images: p.images || [],
+        skipAutoSignature: p.skipAutoSignature || false,
       });
       scheduledIds.push(postId);
     } catch (err) {
