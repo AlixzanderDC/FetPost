@@ -37,6 +37,7 @@ import * as license from './license.js';
 import * as mentions from './mentions.js';
 import * as venueEvents from './venue-events.js';
 import * as campaigns from './campaigns.js';
+import { verifyPendingGroupPosts } from './activity-verify.js';
 
 const app = express();
 const PORT = 3747;
@@ -654,6 +655,29 @@ app.post('/posts/:postId/confirm-sent', auth, async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Auto-verify pending group posts against each account's own activity feed:
+// any submitted_pending_moderation / outcome_unknown group post whose permalink
+// now shows on fetlife.com/<nickname>/activity gets flipped to sent with the
+// permalink recorded — no manual "Confirm sent" click needed. Absence from the
+// feed changes nothing (moderation may just be slow). Playwright per account,
+// so with several pending accounts this takes minutes — with ?progress=1 the
+// work is staged into a pollable progress job (the verify-group-posts.js cron
+// and the UI both use that form); the bare form runs synchronously and is only
+// suitable for a single account with few pending posts.
+app.post('/posts/verify-pending', auth, (req, res) => {
+  const accountId = (req.body && req.body.accountId) || null;
+  if (req.query.progress === '1') {
+    const jobId = startBackgroundJob('Verify pending group posts', { accountId, kind: 'verify-pending' }, async (reporter) => {
+      reporter.stage('Scanning activity feeds');
+      return await verifyPendingGroupPosts({ accountId, onProgress: msg => reporter.stage(msg) });
+    });
+    return res.json({ async: true, jobId });
+  }
+  verifyPendingGroupPosts({ accountId })
+    .then(result => res.json({ success: true, ...result }))
+    .catch(err => res.status(500).json({ error: err.message }));
 });
 
 // Operator-reject: "I checked FetLife, the post was rejected (or never appeared)."

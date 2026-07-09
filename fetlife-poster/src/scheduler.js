@@ -365,11 +365,14 @@ export async function markFailedModeration(postId, reason) {
 }
 
 /**
- * Operator says "yes, I checked FetLife, the post actually landed" — flip a
- * submitted_pending_moderation or outcome_unknown job into the final `sent` state
- * so it stops showing as needing attention. Idempotent for already-sent posts.
+ * "The post actually landed on FetLife" — flip a submitted_pending_moderation
+ * or outcome_unknown job into the final `sent` state so it stops showing as
+ * needing attention. Idempotent for already-sent posts. Confirmed either by
+ * the operator (default) or by the activity-feed sweep (confirmedBy:
+ * 'activity_feed', which also records the discovered permalink on the job).
  */
-export async function confirmJobSent(postId) {
+export async function confirmJobSent(postId, opts = {}) {
+  const { confirmedBy = 'operator', permalink = null } = opts;
   return await mutateQueue(queue => {
     const job = queue[postId];
     if (!job) throw new Error(`Post ${postId} not found`);
@@ -380,7 +383,8 @@ export async function confirmJobSent(postId) {
     job.status = 'sent';
     if (!job.sentAt) job.sentAt = new Date().toISOString();
     job.confirmedAt = new Date().toISOString();
-    job.confirmedBy = 'operator';
+    job.confirmedBy = confirmedBy;
+    if (permalink) job.result = { ...(job.result || {}), url: permalink, verifiedVia: confirmedBy };
     job.moderationNote = null;
     job.error = null; // clear any stale outcome_unknown/failed error now that it's confirmed sent
     job.updatedAt = new Date().toISOString();
